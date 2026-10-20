@@ -1,0 +1,10 @@
+{
+  "versao": "2026-10-15",
+  "fonte": "páginas de preços dos provedores",
+  "modelos": {
+    "claude-sonnet-5-5": {"entrada_por_milhao": 2.00, "saida_por_milhao": 10.00},
+    "gpt-5": {"entrada_por_milhao": 1.25, "saida_por_milhao": 10.00},
+    "gpt-5-mini": {"entrada_por_milhao": 0.25, "saida_por_milhao": 2.00},
+    "text-embedding-3-large": {"entrada_por_milhao": 0.13, "saida_por_milhao": 0.0}
+  }
+}

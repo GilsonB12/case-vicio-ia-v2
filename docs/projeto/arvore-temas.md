@@ -1,0 +1,367 @@
+# Árvore de temas para rotulagem da âncora
+
+Só temas publicáveis: sem raízes, sem inativos e sem os 20 duplicados. Use o número à esquerda em `tema_id_gilson`.
+Prefira o subtema (nível 2) quando a questão é claramente sobre ele; use o tema (nível 1) quando a questão cobre vários subtemas dele.
+
+## Penal
+
+- **5063** Ação Penal
+  - 5065 Ação Penal Privada
+  - 5064 Ação Penal Pública
+- **5066** Concurso de Crimes
+  - 5068 Concurso Formal
+  - 5067 Concurso Material
+  - 5069 Crime Continuado
+  - 5070 Pena de Multa no Concurso de Crimes
+- **5071** Concurso de Pessoas
+  - 5072 Autores e Partícipes
+  - 5073 Autoria Mediata, Colateral e Coautoria
+  - 5076 Comunicabilidade de Circunstâncias, Condições e Elementares
+  - 5075 Cooperação Dolosamente Distinta
+  - 5074 Participação
+- **5077** Das Lesões Corporais
+- **5079** Dos Crimes Contra a Administração Judicial
+  - 5080 Denunciação Caluniosa, Comunicação Falsa de Crime ou Contravenção e Autoacusação Falsa
+  - 5082 Exercício Arbitrário das Próprias Razões
+  - 5085 Exercício Arbitrário ou Abuso de Poder
+  - 5081 Falso Testemunha ou Falsa Perícia e Corrupção Ativa de Testemunha ou Perito
+  - 5084 Favorecimento Pessoal e Real
+  - 5083 Fraude Processual
+  - 5086 Outros crimes contra a Administração Judicial
+- **5087** Dos Crimes Contra a Administração Pública
+  - 5097 Advocacia Administrativa
+  - 5091 Concussão e Excesso de Exação
+  - 5096 Condescendência Criminosa
+  - 5094 Contrabando ou Descaminho
+  - 5093 Corrupção Ativa
+  - 5092 Corrupção Passiva
+  - 5090 Emprego Irregular de Verbas ou Rendas Públicas
+  - 5088 Noções gerais dos crimes praticados contra a administração pública
+  - 5089 Peculato e Peculato Mediante Erro de Outrem
+  - 5095 Prevaricação
+  - 5100 Resistência, Desobediência e Desacato
+  - 5101 Tráfico de Influência
+  - 5099 Usurpação de Função Pública
+  - 5098 Violência Arbitrária
+- **5102** Dos Crimes Contra a Dignidade Sexual
+  - 5106 Assédio Sexual
+  - 5108 Corrupção de Menores
+  - 5110 Disposições Gerais dos Crimes Contra a Dignidade Sexual
+  - 5103 Estupro e Estupro de Vulnerável
+  - 5105 Importunação Sexual
+  - 5109 Outros Crimes Contra a Dignidade Sexual
+  - 5107 Registro Não Autorizado da Intimidade Sexual
+  - 5104 Violação Sexual Mediante Fraude
+- **5116** Dos Crimes Contra a Fé Pública e de Falsidade Documental
+  - 5118 Da Falsidade Documental
+  - 5119 De outras falsidades
+  - 5117 Dos Crimes contra a Fé Pública
+- **5120** Dos Crimes Contra a Honra
+  - 5122 Calúnia
+  - 5123 Difamação
+  - 5121 Disposições Gerais e Comuns aos Crimes Contra a Honra
+  - 5124 Injúria
+- **5125** Dos Crimes Contra a Incolumidade Pública
+  - 5127 Dos Crimes Contra a Segurança dos Meios de Comunicação e Transporte e Outros Serviços Públicos
+  - 5126 Dos Crimes de Perigo Comum
+- **5128** Dos Crimes Contra a Liberdade Pessoal
+  - 5130 Ameaça e Perseguição
+  - 5133 Dos Crimes contra a Inviolabilidade do Domicílio, Contra a Inviolabilidade da Correspondência e Contra a Inviolabilidade dos Segredos
+  - 5129 Intimidação Sistemática (Bullying)
+  - 5132 Sequestro, Cárcere Privado, Redução à Condição Análoga à de Escravo e Tráfico de Pessoas
+  - 5131 Violência Psicológica contra a Mulher
+- **5138** Dos Crimes Contra a Periclitação da Vida e da Saúde
+  - 5141 Abandono de Incapaz e Exposição ou Abandono de Recém-Nascido
+  - 5143 Maus-Tratos
+  - 5142 Omissão de Socorro
+  - 5139 Perigo de Contágio Venéreo e de Moléstia Grave
+  - 5140 Perigo para a Vida ou a Saúde de Outrem
+- **5144** Dos Crimes Contra a Saúde Pública e Dos Crimes Contra à Paz Pública
+  - 5146 Crimes Contra à Paz Pública
+  - 5145 Dos Crimes Contra a Saúde Pública
+- **5149** Dos Crimes Contra a Vida
+  - 5154 Aborto
+  - 5151 Feminicídio
+  - 5150 Homicídio
+  - 5152 Induzimento, Instigação ou Auxílio ao Suicídio
+  - 5153 Infanticídio
+- **5157** Dos Crimes Contra o Patrimônio
+  - 5158 12 Disposições Gerais dos Crimes Contra o Patrimônio
+  - 5167 Abuso de Incapazes
+  - 5165 Apropriação indébita
+  - 5164 Dano
+  - 5162 Esbulho Possessório
+  - 5166 Estelionato
+  - 5161 Extorsão
+  - 5168 Fraude à Execução
+  - 5159 Furto
+  - 5169 Receptação
+  - 5160 Roubo
+  - 5163 Usurpação
+- **5111** Dos Crimes contra a Família
+  - 5114 Dos Crimes Contra a Assistência Familiar
+  - 5112 Dos Crimes Contra o Casamento
+  - 5113 Dos Crimes Contra o Estado de Filiação
+  - 5115 Dos Crimes Contra o Pátrio Poder, a Tutela e a Curatela
+- **5134** Dos Crimes contra a Organização do Trabalho, a Propriedade Imaterial e ao Sentimento Religioso
+  - 5135 Dos Crimes Contra a Organização do Trabalho
+  - 5137 Dos Crimes Contra o Sentimento Religioso e Respeito aos Mortos
+  - 5136 Dos Crimescontra a Propriedade Imaterial
+- **5147** Dos Crimes contra as Finanças Públicas
+- **5148** Dos Crimes contra as Instituições Democráticas
+- **5155** Dos Crimes contra o Estado Democrático de Direito
+- **5156** Dos Crimes contra o Funcionamento dos Serviços Essenciais
+- **5170** Introdução ao Estudo do Direito Penal
+  - 5174 Classificações dos Crimes
+  - 5171 Conceito e Fontes do Direito Penal
+  - 5173 Interpretação da Norma Penal
+  - 5172 Princípios do Direito Penal
+- **5175** Iter Criminis
+  - 5177 Crime Consumado e Tentado
+  - 5179 Crime Impossível
+  - 5178 Desistência Voluntária, Arrependimento Eficaz e Arrependimento posterior
+  - 5176 Fases do Iter Criminis
+- **5180** Lei Penal no Tempo e no Espaço
+  - 5183 Conflito Aparente de Normas
+  - 5182 Lei penal no Espaço
+  - 5181 Lei penal no Tempo
+- **5184** Medida de Segurança
+- **5185** Prescrição
+  - 5186 Conceito, Regras Gerais e Fundamentos da Prescrição
+  - 5187 Contagem dos Prazos e Causas Suspensivas e Interruptivas da Prescrição
+  - 5190 Outras Prescrições
+  - 5189 Prescrição da Pretensão Executória
+  - 5188 Prescrição da Pretensão Punitiva
+- **5191** Punibilidade
+  - 5194 Abolitio Criminis
+  - 5193 Anistia, Graça e Indulto
+  - 5198 Decadência
+  - 5192 Morte do agente
+  - 5197 Perdão Judicial
+  - 5195 Perempção
+  - 5196 Renúncia, Perdão do Ofendido e Retratação
+- **5199** Teoria da Pena
+  - 5209 Efeitos da Condenação Penais e Extrapenais
+  - 5208 Livramento Condicional
+  - 5206 Pena de Multa
+  - 5201 Penas Privativas de Liberdade
+  - 5205 Penas Restritivas de Direitos
+  - 5202 Primeira Fase da Dosimetria: Circunstâncias Judiciais
+  - 5210 Reabilitação Criminal
+  - 5200 Sanção Penal: Conceito, Finalidade e Modalidades
+  - 5203 Segunda Fase da Dosimetria: Agravantes e Atenuantes
+  - 5207 Suspensão Condicional da Pena
+  - 5204 Terceira fase da Dosimetria: Causas de Aumento e de Diminuição
+- **5211** Teoria do Crime: Culpabilidade
+  - 5217 Causas Supralegais de Exclusão da Culpabilidade
+  - 5215 Coação Moral Irresistível
+  - 5212 Conceito e Elementos da Culpabilidade
+  - 5214 Erro de Proibição
+  - 5213 Inimputabilidade
+  - 5216 Obediência Hierárquica
+- **5218** Teoria do Crime: Fato Típico
+  - 5219 Conceito, Sujeito e Objeto do Crime
+  - 5221 Conduta
+  - 5222 Crime Doloso e Culposo
+  - 5223 Crimes Omissivos e Comissivos
+  - 5224 Erro de Tipo
+  - 5220 Fato Típico
+  - 5226 Nexo Causal e Imputação Objetiva
+  - 5225 Resultado
+  - 5227 Tipicidade
+- **5228** Teoria do Crime: Ilicitude
+  - 5233 Causas Supralegais de Exclusão da Ilicitude
+  - 5229 Conceito e Elementos da Ilicitude
+  - 5230 Estado de Necessidade
+  - 5232 Estrito Cumprimento do Dever Legal
+  - 5231 Legítima Defesa
+
+## Processo Penal
+
+- **5466** Ação Penal
+  - 5475 Ação Civil Ex Delicto
+  - 5471 Ação Penal Pública Condicionada
+  - 5470 Ação Penal Pública Incondicionada
+  - 5472 Ação Penal de Iniciativa Privada
+  - 5467 Características e Condições da Ação Penal
+  - 5468 Classificação da Ação Penal
+  - 5473 Denúncia
+  - 5469 Princípios da Ação Penal
+  - 5474 Queixa Crime
+- **5476** Ações Autônomas de Impugnação
+  - 5477 Habeas Corpus
+  - 5479 Mandado de Segurança
+  - 5478 Revisão Criminal
+- **5480** Competência
+  - 5483 Comeptência Territorial
+  - 5485 Competência de Juízo
+  - 5482 Competência em Razão da Matéria
+  - 5484 Competência por Prerrogativa de Função
+  - 5481 Espécies e Fixação de Competência Criminal
+  - 5486 Prorrogação, Perpetuação e Modificação de Competência
+- **5487** Comunicação dos Atos Processuais
+  - 5488 Citação e Contagem dos Prazos
+  - 5489 Intimação e Contagem dos Prazos
+- **5490** Das Questões e Processos Incidentes
+  - 5493 Exceção de Incompetência e de Ilegitimidade
+  - 5494 Exceção de Litispendência e de Coisa Julgada
+  - 5492 Exceção de Suspeição, de Impedimento ou de Incompatibilidade
+  - 5497 Incidente de Falsidade e de Insanidade Mental
+  - 5496 Medidas Assecuratórias: Sequestro, Hipoteca Legal e Arresto
+  - 5491 Questões Prejudiciais e Preliminares
+  - 5495 Restituição de Coisas Apreendidas
+- **5498** Inquérito Policial
+  - 5502 Acordo de Não Persecução Penal
+  - 5499 Conceito, Finalidade e Caractéristas do Inquérito Policial
+  - 5501 Conclusão e Arquivamento do Inquérito Policial
+  - 5504 Inquérito Civil
+  - 5503 Juiz das Garantias
+  - 5500 Procedimento do Inquérito Policial
+- **5505** Lei Processual no Tempo e no Espaço
+  - 5508 Interpretação da Lei processual Penal
+  - 5506 Lei Processual no Espaço
+  - 5507 Lei processual no Tempo
+- **5509** Nulidades
+  - 5510 Nulidade Absoluta e Relativa
+  - 5511 Nulidades em Espécie
+- **5512** Parte Geral dos Recursos
+  - 5516 Classificação dos Recursos
+  - 5515 Efeito dos Recursos
+  - 5514 Pressupostos Objetivos e Subjetivos de Admissibilidade Recursal
+  - 5513 Princípios Recursais no Processo Penal
+- **5517** Prisões em Espécie
+  - 5523 Liberdade Provisória
+  - 5522 Medidas Cautelares Diversas da Prisão
+  - 5521 Prisão Domiciliar
+  - 5519 Prisão Preventiva
+  - 5520 Prisão Temporária
+  - 5518 Prisão em Flagrante
+- **5530** Procedimento Ordinário
+  - 5531 2 Oferecimento, Rejeição e Recebimento da Peça Acusatória
+  - 5534 Absolvição Sumária
+  - 5536 Alegações Orais
+  - 5535 Audiência de Instrução e Julgamento
+  - 5532 Classificação dos Procedimentos
+  - 5533 Defesa Preliminar
+  - 5537 Sentença
+- **5539** Procedimento Sumaríssimo
+  - 5540 Competência dos Juizados Especiais Criminais
+  - 5542 Suspensão Condicional do Processo
+  - 5541 Transação Penal
+- **5538** Procedimento Sumário
+- **5524** Procedimento do Tribunal do Júri
+  - 5527 Impronúncia, Desclassificação, Absolvição Sumária e Pronúncia
+  - 5528 Organização do Júri e Sessão de Julgamento
+  - 5525 Princípios Constitucionais do Júri
+  - 5526 Procedimento Bifásico do Tribunal do Júri
+  - 5529 Sentença do Júri
+- **5543** Provas em Espécies
+  - 5552 Acareação
+  - 5558 Ação Controlada
+  - 5554 Busca e Apreensão
+  - 5544 Cadeia de Custódia
+  - 5556 Captação Ambiental
+  - 5557 Colaboração Premiada
+  - 5548 Confissão
+  - 5549 Declaração do Ofendido
+  - 5545 Exame de Corpo de Delito
+  - 5559 Infiltração de Agentes
+  - 5555 Interceptação Telefônica e Quebra do Sigilo de Dados Telefônicos
+  - 5547 Interrogatório Judicial
+  - 5546 Perícia
+  - 5553 Prova Documental
+  - 5550 Prova Testemunhal
+  - 5551 Reconhecimento de Pessoas e Coisas
+- **5560** Recursos em Espécies
+  - 5566 Agravo em Execução
+  - 5562 Apelação
+  - 5567 Carta Testemunhavel
+  - 5568 Correição Parcial
+  - 5564 Embargos Infringentes
+  - 5565 Embargos de Declaração
+  - 5563 Protesto por novo Júri
+  - 5571 Recurso Especial
+  - 5570 Recurso Extraordinário
+  - 5561 Recurso em sentido estrito (RESE)
+  - 5569 Recursos no Âmbito dos Juizados Especiais
+- **5572** Sentença Penal
+  - 5573 Classificação dos Provimentos Judiciais
+  - 5577 Efeitos Decorrentes da Sentença Penal Condenatória
+  - 5579 Emendatio Libelli e Mutatio Libelli
+  - 5576 Fixação da Pena e do Regime Penitenciário
+  - 5578 Princípio da Correlação entre Acusação e Sentença
+  - 5574 Sentença Absolutória
+  - 5575 Sentença Condenatória
+- **5580** Sistemas e Princípios Processuais Penais
+  - 5582 Princípios do Processo Penal
+  - 5581 Sistemas Processuais Penais
+- **5583** Sujeitos do Processo
+- **5584** Teoria Geral das Prisões
+  - 5589 Audiência de Custódia
+  - 5585 Conceitos e Espécies de Prisão
+  - 5587 Direitos e Garantias sobre a Prisão
+  - 5586 Imunidades Prisionais e Prisões Especiais
+  - 5588 Relaxamento da Prisão
+- **5590** Teoria Geral das Provas
+  - 5591 Finalidade, Sujeitos e Ônus da Prova
+  - 5595 Princípios Relativos à Prova Penal
+  - 5593 Prova Emprestada
+  - 5594 Prova Ilegal e Prova Ilícita
+  - 5592 Sistemas de Avaliação da Prova
+
+## Direito Penal - Legislação Especial
+
+- **4684** Abuso de Autoridade
+- **4685** Biossegurança
+- **4686** Contravenções Penais
+- **4692** Crimes Eleitorais
+- **4693** Crimes Hediondos
+- **4695** Crimes Tributários
+- **4687** Crimes contra a Economia Popular
+- **4689** Crimes contra o Sistema Financeiro
+- **4688** Crimes contra o meio ambiente
+- **4690** Crimes de Racismo
+- **4691** Crimes de Trânsito
+- **4694** Crimes previstos no CDC
+- **4696** Estaturo de Idoso - Crimes
+- **4697** Estatuto do Desarmamento
+- **4698** Genocídio
+- **4699** Identificação Criminal
+- **4700** Interceptação Telefônica
+- **4701** Juizado Especial Criminal
+- **4702** Lavagem de Dinheiro
+- **4704** Lei Maria da Penha
+- **4703** Lei de Execução Penal
+- **4705** Organizações Criminosas
+- **4706** Terrorismo
+- **4707** Tortura
+- **4708** Tráfico de Drogas
+- **4709** Violência contra Criança e Adolescente
+
+## Criminologia
+
+- **4366** Classificação das Vítimas
+- **4367** Classificação dos Criminosos
+- **4368** Criminologia no Estado Democrático de Direito
+  - 4370 Modelos de Reação ao Delito
+  - 4369 Sistemas de Prevenção
+- **4371** Etapas Evolutivas e Escolas Criminológicas
+  - 4373 Escolas Crimonológicas
+  - 4372 Etapas Evolutivas da Criminologia (Antiguidade, Idade Média e Idade Moderna)
+- **4374** Política Criminal
+  - 4375 Correntes da Política Criminal
+  - 4376 Direito Penal do Inimigo
+- **4377** Processos de Criminalização e Cifras Criminais
+  - 4379 Cifras Criminais
+  - 4378 Criminalização Primária e Secundária
+- **4380** Teoria Geral da Criminologia
+  - 4381 Conceito e objeto da Criminologia
+  - 4382 Métodos e funções da Criminologia
+- **4384** Teorias Legitimidoras da Pena
+- **4385** Teorias Sociológicas Explicativas da Criminalidade
+  - 4388 Teorias Criminológicas em Espécie
+  - 4386 Teorias de Nível Individual
+  - 4387 Teorias de Nível Sociológico
+- **4383** Teorias e Síndromes com Enfoque nas Vítimas
+- **4389** Vitimologia
+  - 4390 Processo de Vitimização
