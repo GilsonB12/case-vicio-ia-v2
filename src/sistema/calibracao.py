@@ -90,6 +90,8 @@ registro = logging.getLogger(__name__)
 
 PRECISAO_ALVO = 0.97
 LIMITE_INFERIOR_ALVO = 0.95
+PRECISAO_REGUA = 0.95
+N_EFETIVO_MINIMO = 10
 GANHO_MINIMO_CORPUS = 0.03
 
 ESTRATO_FORA = "fora"
@@ -546,25 +548,34 @@ def grade(
 def escolher(tabela_grade: pd.DataFrame) -> tuple[Limiares, int]:
     """Par de limiares pela escada e o degrau usado.
 
-    Degrau 0: precisão ≥ 0,97 e limite inferior ≥ 0,95, maior cobertura. Degrau 1: só limite inferior ≥ 0,95,
-    maior cobertura. Degrau 2: só precisão ≥ 0,97, maior cobertura. Degrau 3: maior limite inferior, desempate pela
-    maior cobertura. Empate depois disso: menor limiar de fora, depois maior limiar de publicar (o mais
-    conservador entre os que publicam as mesmas questões).
+    `precisao` é a precisão suavizada de Jeffreys sobre as contagens efetivas (uma por questão, não por repetição).
+    Degrau 0: precisão ≥ 0,97 e limite inferior ≥ 0,95. Degrau 1: só limite inferior ≥ 0,95. Degrau 2: precisão
+    ≥ 0,97 com pelo menos `N_EFETIVO_MINIMO` publicações efetivas. Degrau 3: precisão ≥ 0,95 (a régua) com pelo menos
+    `N_EFETIVO_MINIMO` publicações efetivas. Em todos, maior cobertura. Degrau 4, quando nenhum limiar atinge a régua:
+    o de maior precisão (o `previsao.txt` diz que a régua não foi atingida). Nenhum degrau aceita, para publicar,
+    um limiar com precisão abaixo da régua só porque o intervalo é mais estreito; com 100 rótulos o limite inferior
+    nunca chega a 0,95, e maximizá-lo empurrava para limiares com precisão de 0,91.
+    Empates: menor limiar de fora, depois maior limiar de publicar (o mais conservador).
     """
     if tabela_grade.empty:
         raise ValueError("grade vazia")
     g = tabela_grade
     media_ok = g["precisao"] >= PRECISAO_ALVO - _TOLERANCIA
+    regua_ok = g["precisao"] >= PRECISAO_REGUA - _TOLERANCIA
     inferior_ok = g["limite_inferior"] >= LIMITE_INFERIOR_ALVO - _TOLERANCIA
-    for degrau, filtro in ((0, media_ok & inferior_ok), (1, inferior_ok), (2, media_ok)):
+    if "publicadas_efetivas" in g:
+        n_ok = g["publicadas_efetivas"] >= N_EFETIVO_MINIMO - _TOLERANCIA
+    else:
+        n_ok = pd.Series(True, index=g.index)
+    ordem = (["cobertura", "fora", "publicar"], [False, True, False])
+    for degrau, filtro in ((0, media_ok & inferior_ok), (1, inferior_ok), (2, media_ok & n_ok), (3, regua_ok & n_ok)):
         candidatos = g[filtro]
         if len(candidatos):
-            melhor = candidatos.sort_values(["cobertura", "fora", "publicar"], ascending=[False, True, False],
-                                            kind="stable").iloc[0]
+            melhor = candidatos.sort_values(ordem[0], ascending=ordem[1], kind="stable").iloc[0]
             return Limiares(publicar=float(melhor["publicar"]), fora=float(melhor["fora"])), degrau
-    melhor = g.sort_values(["limite_inferior", "cobertura", "fora", "publicar"],
+    melhor = g.sort_values(["precisao", "cobertura", "fora", "publicar"],
                            ascending=[False, False, True, False], kind="stable").iloc[0]
-    return Limiares(publicar=float(melhor["publicar"]), fora=float(melhor["fora"])), 3
+    return Limiares(publicar=float(melhor["publicar"]), fora=float(melhor["fora"])), 4
 
 
 def linha_da_grade(tabela_grade: pd.DataFrame, limiares: Limiares) -> dict:

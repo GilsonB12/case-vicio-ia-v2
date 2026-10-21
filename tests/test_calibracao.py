@@ -318,14 +318,30 @@ def test_escada_degrau_2_so_media():
     assert escolher(g) == (Limiares(0.50, 0.5), 2)
 
 
-def test_escada_degrau_3_maior_limite_inferior_e_desempates():
+def test_escada_degrau_3_regua_com_maior_cobertura():
     g = grade_a_mao([
-        (0.50, 0.5, 0.70, 0.90, 0.85),
-        (0.60, 0.6, 0.60, 0.92, 0.88),
-        (0.70, 0.4, 0.60, 0.92, 0.88),  # empata no limite inferior e na cobertura: menor limiar de fora
-        (0.80, 0.4, 0.40, 0.93, 0.88),  # mesmo limite inferior, cobertura menor
+        (0.50, 0.5, 0.70, 0.91, 0.85),  # abaixo da régua, mesmo com o maior limite inferior
+        (0.80, 0.5, 0.40, 0.955, 0.80),  # degrau 3
+        (0.90, 0.5, 0.20, 0.96, 0.78),  # degrau 3, cobertura menor
     ])
-    assert escolher(g) == (Limiares(0.70, 0.4), 3)
+    assert escolher(g) == (Limiares(0.80, 0.5), 3)
+
+
+def test_escada_degrau_3_exige_n_efetivo_minimo():
+    g = grade_a_mao([(0.80, 0.5, 0.40, 0.955, 0.80), (0.95, 0.5, 0.05, 0.96, 0.70)])
+    g["publicadas_efetivas"] = [12, 4]
+    assert escolher(g) == (Limiares(0.80, 0.5), 3)
+    g["publicadas_efetivas"] = [8, 4]
+    assert escolher(g)[1] == 4
+
+
+def test_escada_degrau_4_maior_precisao_quando_nada_atinge_a_regua():
+    g = grade_a_mao([
+        (0.50, 0.5, 0.70, 0.90, 0.85),  # maior limite inferior: não é escolhido
+        (0.80, 0.6, 0.30, 0.93, 0.75),
+        (0.80, 0.4, 0.30, 0.93, 0.75),  # empata: menor limiar de fora
+    ])
+    assert escolher(g) == (Limiares(0.80, 0.4), 4)
 
 
 def test_escada_empate_de_cobertura_fica_com_menor_fora_e_maior_publicar():

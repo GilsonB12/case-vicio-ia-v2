@@ -136,7 +136,11 @@ _DEGRAUS = {
        "maior cobertura)",
     2: "degrau 2 (nenhum par chegou aos degraus 0 e 1; vale só a precisão prevista de pelo menos 0,97, com a maior "
        "cobertura)",
-    3: "degrau 3 (nenhum par chegou aos degraus 0 a 2; fica o par de maior limite inferior)",
+    3: "degrau 3 (nenhum par chegou aos degraus 0 a 2, porque com 100 rótulos o limite inferior não chega a 0,95 e "
+       "a precisão de 0,97 exige mais publicações sem erro do que a folha tem; vale a precisão prevista de pelo menos "
+       "0,95, que é a régua, com pelo menos 10 publicações efetivas e a maior cobertura)",
+    4: "degrau 4 (nenhum limiar chegou à régua de 0,95 na validação; fica o de maior precisão prevista, e a "
+       "previsão abaixo da régua está declarada)",
 }
 
 
