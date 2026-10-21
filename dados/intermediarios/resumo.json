@@ -1,0 +1,97 @@
+{
+ "precisao": 0.956896551724138,
+ "precisao_intervalo": [
+  0.8337035956917471,
+  0.9994153529534067
+ ],
+ "cobertura": 0.1413237924865832,
+ "cobertura_intervalo": [
+  0.13132379248658319,
+  0.1513237924865832
+ ],
+ "cobertura_dobras": 0.18333333333333332,
+ "publicadas_dobras": 55,
+ "acertos_dobras": 54,
+ "n_teste_dobras": 300,
+ "n_efetivo": 18.333333333333332,
+ "acertos_efetivos": 18.0,
+ "degrau": 3,
+ "limiares": {
+  "publicar": 0.97,
+  "fora": 0.4,
+  "extra": 0.15
+ },
+ "com_corpus": false,
+ "n_rotulos": 100,
+ "n_dobras": 5,
+ "n_dobras_confianca": 5,
+ "repeticoes": 3,
+ "n_questoes": 659,
+ "n_avaliadas": 559,
+ "n_recentes": 300,
+ "publicadas_avaliadas": 79,
+ "contagens": {
+  "publicar": 99,
+  "revisar": 542,
+  "fora": 18
+ },
+ "contagens_avaliadas": {
+  "publicar": 79,
+  "revisar": 462,
+  "fora": 18
+ },
+ "erros_dobras": {
+  "irmao": 0,
+  "outro_ramo": 1,
+  "fora_publicada": 0
+ },
+ "comparacao": {
+  "regra": "o corpus fica se a cobertura prevista subir pelo menos 3 pontos com precisão prevista e limite inferior não menores que os da versão sem corpus",
+  "sem_corpus": {
+   "com_corpus": false,
+   "publicar": 0.97,
+   "fora": 0.4,
+   "degrau": 3,
+   "precisao": 0.956896551724138,
+   "limite_inferior": 0.8337035956917471,
+   "limite_superior": 0.9994153529534067,
+   "cobertura": 0.18333333333333332,
+   "publicadas": 55,
+   "acertos": 54,
+   "n": 300,
+   "repeticoes": 3,
+   "n_efetivo": 18.333333333333332,
+   "acertos_efetivos": 18.0,
+   "erros": {
+    "irmao": 0,
+    "outro_ramo": 1,
+    "fora_publicada": 0
+   }
+  },
+  "com_corpus": {
+   "com_corpus": true,
+   "publicar": 0.95,
+   "fora": 0.3,
+   "degrau": 3,
+   "precisao": 0.9505494505494505,
+   "limite_inferior": 0.848588405243055,
+   "limite_superior": 0.996264929638759,
+   "cobertura": 0.29333333333333333,
+   "publicadas": 88,
+   "acertos": 85,
+   "n": 300,
+   "repeticoes": 3,
+   "n_efetivo": 29.333333333333332,
+   "acertos_efetivos": 28.333333333333332,
+   "erros": {
+    "irmao": 0,
+    "outro_ramo": 3,
+    "fora_publicada": 0
+   }
+  },
+  "ganho_cobertura": 0.11000000000000001,
+  "corpus_aprovado": false,
+  "motivo": "precisão prevista menor"
+ },
+ "tempo_segundos": 142.5
+}

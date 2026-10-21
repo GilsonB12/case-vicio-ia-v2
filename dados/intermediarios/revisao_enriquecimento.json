@@ -1,0 +1,48 @@
+{
+ "questoes_com_lei": 14,
+ "coerentes": 11,
+ "divergencias": [
+  {
+   "id": "Q0077",
+   "tema": 5183,
+   "caminho": "Penal > Lei Penal no Tempo e no Espaço > Conflito Aparente de Normas",
+   "leis_na_questao": [
+    "lei:12015",
+    "lei:2889",
+    "lei:4737"
+   ],
+   "leis_no_tema": [
+    "lei:2848",
+    "lei:7210"
+   ]
+  },
+  {
+   "id": "Q0090",
+   "tema": 5530,
+   "caminho": "Processo Penal > Procedimento Ordinário",
+   "leis_na_questao": [
+    "lei:9099"
+   ],
+   "leis_no_tema": [
+    "lei:11719",
+    "lei:14245",
+    "lei:3689"
+   ]
+  },
+  {
+   "id": "Q0320",
+   "tema": 5550,
+   "caminho": "Processo Penal > Provas em Espécies > Prova Testemunhal",
+   "leis_na_questao": [
+    "lei:11343",
+    "lei:12850"
+   ],
+   "leis_no_tema": [
+    "lei:11690",
+    "lei:13964",
+    "lei:2848",
+    "lei:3689"
+   ]
+  }
+ ]
+}

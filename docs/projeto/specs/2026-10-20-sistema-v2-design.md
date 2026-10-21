@@ -2,6 +2,8 @@
 
 Etapa 2 do case Vício. Esta spec é a referência de desenho; o que divergir dela durante a implementação é registrado em `docs/projeto/notes/`.
 
+> As seções 7 a 9 foram superadas pelos dados: a decisão usa um segundo estágio de confiança treinado fora da amostra, o intervalo usa o número efetivo de questões, a escada nunca aceita precisão abaixo da régua, e o dicionário de termos foi testado e descartado. Ver `docs/projeto/notes/2026-10-21-decisoes-depois-da-spec.md`.
+
 ## 1. Regras do case que moldam tudo
 
 - 659 questões (Q0001 a Q0359 do banco da Vício; Q0360 a Q0659 de concursos recentes), a mesma árvore de 377 temas, e `folha_verdade.csv` com 100 questões rotuladas pela equipe, todas entre as 359.

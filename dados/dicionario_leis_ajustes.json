@@ -2,27 +2,40 @@
  "_formato": "Ajustes revisados à mão do dicionário lei-tema (dados/dicionario_leis.json, gerado por `uv run sistema dicionario`). Cada chave segue a normalização de sistema.leis.extrair_chaves (lei:11340, dl:2848, diploma:cp, art:157:cp, art:5:lei:11340, sumula:v:11) e vale {\"nome\": texto, \"temas\": {\"tema_id\": peso}, \"fora\": true|false}. A entrada daqui substitui por inteiro a que o script monta dos temas enriquecidos (peso 1/n sobre os n temas que citam a chave); chave que não existe lá é acrescentada. temas vazio = a chave não indica tema nenhum (diploma genérico demais). fora = true soma no peso_fora do detector de questões fora da taxonomia (a CF só quando é o único diploma do texto). Sem 'fora', vale true para as chaves de sistema.leis.CHAVES_FORA e false para as demais. Ids conferidos em anexos/temas.csv; nos temas com duplicado, o original de Legislação Especial pesa mais que o duplicado.",
  "lei:11340": {
   "nome": "Lei Maria da Penha (Lei 11.340/2006)",
-  "temas": {"4704": 1.0, "6724": 0.3},
+  "temas": {
+   "4704": 1.0,
+   "6724": 0.3
+  },
   "fora": false
  },
  "lei:10826": {
   "nome": "Estatuto do Desarmamento (Lei 10.826/2003)",
-  "temas": {"4697": 1.0},
+  "temas": {
+   "4697": 1.0
+  },
   "fora": false
  },
  "lei:11343": {
   "nome": "Lei de Drogas (Lei 11.343/2006)",
-  "temas": {"4708": 1.0},
+  "temas": {
+   "4708": 1.0
+  },
   "fora": false
  },
  "lei:9099": {
   "nome": "Lei dos Juizados Especiais (Lei 9.099/1995)",
-  "temas": {"4701": 1.0, "5539": 0.5},
+  "temas": {
+   "4701": 1.0,
+   "5539": 0.5
+  },
   "fora": false
  },
  "lei:7210": {
   "nome": "Lei de Execução Penal (Lei 7.210/1984)",
-  "temas": {"4703": 1.0, "6734": 0.5},
+  "temas": {
+   "4703": 1.0,
+   "6734": 0.5
+  },
   "fora": false
  },
  "dl:2848": {
@@ -64,5 +77,10 @@
   "nome": "Consolidação das Leis do Trabalho",
   "temas": {},
   "fora": true
+ },
+ "lei:15410": {
+  "temas": {},
+  "fora": false,
+  "nome": "citada no enriquecimento do tema 4707 (Tortura) sem confirmação; neutralizada na revisão por amostra"
  }
 }

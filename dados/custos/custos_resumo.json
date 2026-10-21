@@ -1,0 +1,59 @@
+{
+  "livro": "D:\\Projetos\\Pessoal\\case-vicio-ia-v2\\dados\\custos\\chamadas.jsonl",
+  "preco_versao": "2026-10-15",
+  "linhas": 28,
+  "linhas_invalidas": 0,
+  "gerado_em": "2026-10-21T02:44:23.523+00:00",
+  "total": {
+    "linhas": 28,
+    "uso_desconhecido": 0,
+    "custo_desconhecido": 0,
+    "n_textos": 2634,
+    "tokens_entrada": 588148,
+    "tokens_saida": 0,
+    "custo_usd": 0.07645924
+  },
+  "por_execucao": {
+    "20261021T012453-12216": {
+      "linhas": 21,
+      "uso_desconhecido": 0,
+      "custo_desconhecido": 0,
+      "n_textos": 2019,
+      "tokens_entrada": 428113,
+      "tokens_saida": 0,
+      "custo_usd": 0.05565469
+    },
+    "20261021T024406-36356": {
+      "linhas": 7,
+      "uso_desconhecido": 0,
+      "custo_desconhecido": 0,
+      "n_textos": 615,
+      "tokens_entrada": 160035,
+      "tokens_saida": 0,
+      "custo_usd": 0.02080455
+    }
+  },
+  "por_etapa": {
+    "embeddings": {
+      "linhas": 28,
+      "uso_desconhecido": 0,
+      "custo_desconhecido": 0,
+      "n_textos": 2634,
+      "tokens_entrada": 588148,
+      "tokens_saida": 0,
+      "custo_usd": 0.07645924
+    }
+  },
+  "por_modelo": {
+    "openai/text-embedding-3-large": {
+      "linhas": 28,
+      "uso_desconhecido": 0,
+      "custo_desconhecido": 0,
+      "n_textos": 2634,
+      "tokens_entrada": 588148,
+      "tokens_saida": 0,
+      "custo_usd": 0.07645924
+    }
+  },
+  "painel": {}
+}
