@@ -1,12 +1,17 @@
-"""Decisão por questão a partir de `p` dos candidatos, `p_ramo` dos pais e `p_fora` (spec, seção 9).
+"""Decisão por questão a partir de `p` dos candidatos, das opções do segundo estágio e de `p_fora` (spec, seção 9).
+
+As opções (`Opcao`) vêm do `ModeloConfianca`: o top-1 do modelo de pares (`tema`) e, quando ele é de nível 2, o
+ramo de nível 1 dele (`ramo`), cada uma com a confiança (probabilidade de estar certa pela régua).
 
 1. `p_fora ≥ τ_fora` → `fora`, motivo com o que disparou (chaves fora, termos, disciplina).
-2. Tema de maior `p` com `p ≥ τ` → `publicar` nele.
-3. Senão, pai de nível 1 de maior `p_ramo` com `p_ramo ≥ τ` → `publicar` no pai.
-4. Senão → `revisar` com o tema de maior `p`; motivo "probabilidade X abaixo do limiar Y", ou "divergência
-   entre ramos" quando os dois maiores `p` estão em ramos diferentes e somam mais de 0,8.
+2. Opção de maior confiança é o `tema` e a confiança ≥ `τ` → `publicar` no top-1.
+3. Opção de maior confiança é o `ramo` e a confiança ≥ `τ` → `publicar` no pai (empate de confiança fica com o
+   `tema`, mais específico).
+4. Senão → `revisar` com o top-1 do modelo de pares; motivo "confiança X abaixo do limiar Y" (X é a da melhor
+   opção), ou "buscas divergem" quando no máximo uma das quatro buscas tem o top-1 como primeiro.
 5. Extras (publicar e revisar): até 3 outros candidatos com `p ≥ τ_extra`, em ordem de `p`, fora do central, do
-   pai e dos filhos dele. Confiança: `p` do central (ou `p_ramo` no pai), com 2 casas; em `fora`, `p_fora`.
+   pai e dos filhos dele. Confiança: a do segundo estágio para o central (em `revisar`, a da opção `tema`), com 2
+   casas; em `fora`, `p_fora`.
 
 Questão sem nenhum candidato não tem tema para sugerir: sai `fora` (regra 1) com o motivo dito.
 """
@@ -28,7 +33,11 @@ DECISOES = (PUBLICAR, REVISAR, FORA)
 
 EXTRA_PADRAO = 0.15
 N_EXTRAS = 3
-SOMA_DIVERGENCIA = 0.8
+VOTOS_DIVERGENCIA = 1  # com no máximo este número de buscas no top-1, o motivo de revisar é "buscas divergem"
+N_BUSCAS = 4
+
+OPCAO_TEMA = "tema"
+OPCAO_RAMO = "ramo"
 
 
 @dataclass(frozen=True)
@@ -36,6 +45,16 @@ class Limiares:
     publicar: float
     fora: float
     extra: float = EXTRA_PADRAO
+
+
+@dataclass(frozen=True)
+class Opcao:
+    """Uma opção de publicação e a confiança do segundo estágio; `votos`: buscas com o tema como top-1."""
+
+    opcao: str
+    tema_id: int
+    confianca: float
+    votos: int = 0
 
 
 @dataclass
@@ -66,6 +85,24 @@ def _de_tabela(tabela: pd.DataFrame | Sequence | None, coluna: str) -> list[tupl
     return list(tabela)
 
 
+def opcoes_de_tabela(tabela: pd.DataFrame | Sequence[Opcao] | None) -> list[Opcao]:
+    """`Opcao` de cada linha (`opcao`, `tema_id`, `confianca` e, se houver, `votos`) de uma tabela de opções."""
+    if tabela is None:
+        return []
+    if not isinstance(tabela, pd.DataFrame):
+        return list(tabela)
+    votos = tabela["votos"] if "votos" in tabela else [0] * len(tabela)
+    return [Opcao(str(o), int(t), float(c), int(v))
+            for o, t, c, v in zip(tabela["opcao"], tabela["tema_id"], tabela["confianca"], votos)]
+
+
+def melhor_opcao(opcoes: Sequence[Opcao]) -> Opcao | None:
+    """A de maior confiança; empate fica com o `tema`."""
+    if not opcoes:
+        return None
+    return max(opcoes, key=lambda o: (float(o.confianca), o.opcao == OPCAO_TEMA))
+
+
 def _extras(central: int, temas: list[tuple[int, float]], limiar: float, arvore: "ArvoreTemas") -> list[int]:
     excluidos = {central, *arvore.filhos(central)}
     pai = arvore.pai(central)
@@ -74,13 +111,14 @@ def _extras(central: int, temas: list[tuple[int, float]], limiar: float, arvore:
     return [t for t, p in temas if p >= limiar and t not in excluidos][:N_EXTRAS]
 
 
-def _motivo_revisar(temas: list[tuple[int, float]], limiar: float, arvore: "ArvoreTemas") -> str:
-    (t1, p1), *resto = temas
-    if resto:
-        t2, p2 = resto[0]
-        if p1 + p2 > SOMA_DIVERGENCIA and arvore.ancestral_nivel1(t1) != arvore.ancestral_nivel1(t2):
-            return f"divergência entre ramos: {t1} ({numero(p1)}) e {t2} ({numero(p2)})"
-    return f"probabilidade {numero(p1)} abaixo do limiar {numero(limiar)}"
+def _motivo_revisar(tema: int, opcao_tema: Opcao | None, melhor: Opcao | None, limiar: float) -> str:
+    confianca = float(melhor.confianca) if melhor is not None else 0.0
+    no_ramo = f" (ramo {melhor.tema_id})" if melhor is not None and melhor.opcao == OPCAO_RAMO else ""
+    abaixo = f"confiança {numero(confianca)}{no_ramo} abaixo do limiar {numero(limiar)}"
+    votos = int(opcao_tema.votos) if opcao_tema is not None else 0
+    if votos <= VOTOS_DIVERGENCIA:
+        return f"buscas divergem: {votos} de {N_BUSCAS} buscas têm o tema {tema} como primeiro; {abaixo}"
+    return abaixo
 
 
 def _motivo_fora(p_fora: float, gatilhos: Sequence[str], p_max: float | None) -> str:
@@ -94,7 +132,7 @@ def _motivo_fora(p_fora: float, gatilhos: Sequence[str], p_max: float | None) ->
 def decidir_listas(
     id_questao: str,
     temas: Sequence[tuple[int, float]],
-    ramos: Sequence[tuple[int, float]],
+    opcoes: Sequence[Opcao],
     p_fora: float,
     limiares: Limiares,
     arvore: "ArvoreTemas",
@@ -102,24 +140,27 @@ def decidir_listas(
     com_extras: bool = True,
     ordenados: bool = False,
 ) -> Decisao:
-    """`decidir` com `(tema_id, p)` e `(pai, p_ramo)` em listas; `ordenados` diz que já vêm em ordem de `p`.
+    """`decidir` com `(tema_id, p)` em lista e as opções do segundo estágio; `ordenados` diz que os temas já vêm em
+    ordem de `p`.
 
     `com_extras=False` pula os extras (a grade de limiares só conta o central).
     """
     if not ordenados:
-        temas, ramos = _ordenar(temas), _ordenar(ramos)
+        temas = _ordenar(temas)
     p_fora = float(p_fora)
     if p_fora >= limiares.fora or not temas:
         motivo = _motivo_fora(p_fora, gatilhos, temas[0][1] if temas else None)
         return Decisao(id_questao, FORA, None, [], round(p_fora, 2), motivo, 1)
-    tema_max, p_max = temas[0]
-    if p_max >= limiares.publicar:
-        central, confianca, decisao, motivo, regra = tema_max, p_max, PUBLICAR, "", 2
-    elif ramos and ramos[0][1] >= limiares.publicar:
-        (central, confianca), decisao, motivo, regra = ramos[0], PUBLICAR, "", 3
+    tema_max, _ = temas[0]
+    opcao_tema = next((o for o in opcoes if o.opcao == OPCAO_TEMA), None)
+    melhor = melhor_opcao(opcoes)
+    if melhor is not None and float(melhor.confianca) >= limiares.publicar:
+        central, confianca, decisao, motivo = melhor.tema_id, melhor.confianca, PUBLICAR, ""
+        regra = 2 if melhor.opcao == OPCAO_TEMA else 3
     else:
-        central, confianca, decisao, regra = tema_max, p_max, REVISAR, 4
-        motivo = _motivo_revisar(temas, limiares.publicar, arvore)
+        central, decisao, regra = tema_max, REVISAR, 4
+        confianca = opcao_tema.confianca if opcao_tema is not None else 0.0
+        motivo = _motivo_revisar(tema_max, opcao_tema, melhor, limiares.publicar)
     extras = _extras(central, temas, limiares.extra, arvore) if com_extras else []
     return Decisao(id_questao, decisao, int(central), extras, round(float(confianca), 2), motivo, regra)
 
@@ -127,15 +168,16 @@ def decidir_listas(
 def decidir(
     id_questao: str,
     prob_q: pd.DataFrame,
-    p_ramo_q: pd.DataFrame,
+    opcoes_q: pd.DataFrame | Sequence[Opcao],
     p_fora: float,
     limiares: Limiares,
     arvore: "ArvoreTemas",
     gatilhos: Sequence[str] = (),
 ) -> Decisao:
-    """Decisão de uma questão: `prob_q` com `tema_id, p` dos candidatos; `p_ramo_q` com `tema_id, p_ramo` dos pais.
+    """Decisão de uma questão: `prob_q` com `tema_id, p` dos candidatos; `opcoes_q` com `opcao, tema_id,
+    confianca, votos` das opções do segundo estágio (ou a lista de `Opcao`).
 
     `gatilhos` (de `modelo.gatilhos_fora`) entram no motivo quando a decisão é `fora`.
     """
-    return decidir_listas(id_questao, _de_tabela(prob_q, "p"), _de_tabela(p_ramo_q, "p_ramo"), p_fora, limiares,
+    return decidir_listas(id_questao, _de_tabela(prob_q, "p"), opcoes_de_tabela(opcoes_q), p_fora, limiares,
                           arvore, gatilhos)

@@ -6,6 +6,9 @@
 - `agregar_ramo`: `p_ramo(pai) = p_pai + Σ p dos filhos candidatos`, para os temas de nível 1 candidatos.
 - `DetectorFora`: regressão logística separada sobre características da questão (`CARACTERISTICAS_FORA`, montadas
   por `tabela_questoes`), calibrada com Platt quando há exemplos das duas classes em número suficiente.
+- `ModeloConfianca`: segundo estágio. Para cada questão, duas opções de publicação, o top-1 do modelo de pares
+  (`tema`) e o ramo de nível 1 dele (`ramo`, só quando o top-1 é de nível 2), com `CARACTERISTICAS_CONFIANCA`
+  montadas por `tabela_opcoes`; a regressão logística dá a probabilidade de a opção estar certa pela régua.
 
 Tudo determinístico: sementes fixas e solver sem sorteio.
 """
@@ -28,6 +31,7 @@ from sklearn.preprocessing import StandardScaler
 
 from sistema.caracteristicas import CARACTERISTICAS, normalizar_disciplina
 from sistema.config import SEMENTE
+from sistema.decisao import OPCAO_RAMO, OPCAO_TEMA
 from sistema.dicionario import pontuar
 from sistema.leis import peso_fora as calcular_peso_fora
 
@@ -407,3 +411,124 @@ def rotulos_pares(pares: pd.DataFrame, positivos: Mapping[str, Collection[int]])
 
 def pesos_por_linha(tabela: pd.DataFrame, peso_por_id: Mapping[Hashable, float]) -> np.ndarray:
     return np.array([float(peso_por_id[str(i)]) for i in tabela["id"]], dtype=float)
+
+
+# --- segundo estágio: confiança por opção de publicação ----------------------------------------------------
+
+CARACTERISTICAS_CONFIANCA = ["p", "s", "votos", "votos_ramo", "nivel2_opcao", "knn_folha_max", "tem_lei"]
+COLUNAS_OPCOES = ["id", "opcao", "tema_id", *CARACTERISTICAS_CONFIANCA]
+C_CONFIANCA = 1.0
+
+
+def tem_lei(contexto: "Contexto", id_item: str) -> bool:
+    """A questão tem alguma chave de lei, artigo ou súmula que aponta para algum tema publicável."""
+    pontos, _ = pontuar(contexto.chaves(id_item), contexto.dicionario)
+    return any(valor > 0 and int(tema_id) in contexto.publicaveis for tema_id, valor in pontos.items())
+
+
+def tabela_opcoes(prob: pd.DataFrame, ramos: pd.DataFrame, pares: pd.DataFrame, contexto: "Contexto") -> pd.DataFrame:
+    """Uma ou duas linhas por questão com candidatos, na ordem de `prob`; colunas `COLUNAS_OPCOES`.
+
+    - `tema`: o top-1 do modelo de pares (maior `p`; empate, menor id). `p` e `s` são os dele.
+    - `ramo`: o pai de nível 1 do top-1, só quando o top-1 é de nível 2 e o pai é candidato; `p` = `p_ramo` do pai.
+
+    `votos` e `votos_ramo` são os do par (questão, tema da opção); `s` e `knn_folha_max` são sempre os do par do
+    top-1; `nivel2_opcao` é 1 se o tema da opção é de nível 2; `tem_lei` é da questão (`tem_lei`).
+    """
+    arvore = contexto.arvore
+    par = {
+        (str(i), int(t)): (float(v), float(r), float(k))
+        for i, t, v, r, k in zip(pares["id"], pares["tema_id"], pares["votos"], pares["votos_ramo"],
+                                 pares["knn_folha_max"])
+    }
+    p_ramo = {(str(i), int(t)): float(v) for i, t, v in zip(ramos["id"], ramos["tema_id"], ramos["p_ramo"])}
+    topo: dict[str, tuple[int, float, float]] = {}
+    for id_q, tema_id, s, p in zip(prob["id"], prob["tema_id"], prob["s"], prob["p"]):
+        id_q, tema_id, p = str(id_q), int(tema_id), float(p)
+        atual = topo.get(id_q)
+        if atual is None or (-p, tema_id) < (-atual[2], atual[0]):
+            topo[id_q] = (tema_id, float(s), p)
+    linhas: list[dict] = []
+    for id_q, (tema_id, s, p) in topo.items():
+        votos, votos_ramo, knn_folha = par.get((id_q, tema_id), (0.0, 0.0, 0.0))
+        lei = 1.0 if tem_lei(contexto, id_q) else 0.0
+        nivel2 = arvore.nivel(tema_id) >= 2
+        linhas.append({"id": id_q, "opcao": OPCAO_TEMA, "tema_id": tema_id, "p": p, "s": s, "votos": votos,
+                       "votos_ramo": votos_ramo, "nivel2_opcao": 1.0 if nivel2 else 0.0, "knn_folha_max": knn_folha,
+                       "tem_lei": lei})
+        pai = arvore.pai(tema_id) if nivel2 else None
+        if pai is not None and (id_q, int(pai)) in p_ramo:
+            votos_pai, votos_ramo_pai, _ = par.get((id_q, int(pai)), (0.0, votos_ramo, 0.0))
+            linhas.append({"id": id_q, "opcao": OPCAO_RAMO, "tema_id": int(pai), "p": p_ramo[(id_q, int(pai))],
+                           "s": s, "votos": votos_pai, "votos_ramo": votos_ramo_pai, "nivel2_opcao": 0.0,
+                           "knn_folha_max": knn_folha, "tem_lei": lei})
+    tabela = pd.DataFrame(linhas, columns=COLUNAS_OPCOES)
+    tabela["tema_id"] = tabela["tema_id"].astype("int64")
+    tabela[CARACTERISTICAS_CONFIANCA] = tabela[CARACTERISTICAS_CONFIANCA].astype(float)
+    return tabela
+
+
+class ModeloConfianca:
+    """Segundo estágio: probabilidade de uma opção de publicação (`tabela_opcoes`) estar certa pela régua.
+
+    `LogisticRegression(C=1, class_weight=None)` sobre `CARACTERISTICAS_CONFIANCA` padronizadas, treinada com
+    opções de previsões fora da amostra do modelo de pares (`calibracao.opcoes_fora_da_amostra`). Sem as duas
+    classes no treino, devolve a fração de acertos (0 sem nenhuma opção).
+    """
+
+    def __init__(self, C: float = C_CONFIANCA) -> None:
+        self.C = float(C)
+        self.escalador: StandardScaler | None = None
+        self.regressao: LogisticRegression | None = None
+        self.constante: float | None = None
+        self.n_opcoes = 0
+        self.n_certas = 0
+
+    @property
+    def treinado(self) -> bool:
+        return self.regressao is not None or self.constante is not None
+
+    def treinar(self, opcoes: pd.DataFrame, rotulos: Sequence) -> "ModeloConfianca":
+        """Uma linha por opção (`CARACTERISTICAS_CONFIANCA`) e rótulo 1 quando a opção está certa."""
+        y, _ = _validar_tamanhos(opcoes, rotulos, np.ones(len(opcoes)))
+        X = opcoes[CARACTERISTICAS_CONFIANCA].to_numpy(dtype=float)
+        self.regressao, self.constante = None, None
+        self.n_opcoes, self.n_certas = int(len(y)), int(y.sum())
+        self.escalador = StandardScaler().fit(X) if len(X) else None
+        if len(np.unique(y)) < 2:
+            self.constante = float(y.mean()) if len(y) else 0.0
+            return self
+        self.regressao = LogisticRegression(C=self.C, class_weight=None, max_iter=MAX_ITER)
+        self.regressao.fit(self.escalador.transform(X), y)
+        return self
+
+    def confianca(self, opcoes: pd.DataFrame) -> np.ndarray:
+        """Probabilidade de acerto de cada opção, na ordem da tabela."""
+        if not self.treinado:
+            raise RuntimeError("ModeloConfianca ainda não foi treinado")
+        if opcoes.empty:
+            return np.zeros(0)
+        if self.regressao is None:
+            return np.full(len(opcoes), self.constante, dtype=float)
+        X = self.escalador.transform(opcoes[CARACTERISTICAS_CONFIANCA].to_numpy(dtype=float))
+        return self.regressao.predict_proba(X)[:, 1]
+
+    def pesos_legiveis(self) -> dict[str, float]:
+        if self.regressao is None:
+            return {nome: 0.0 for nome in CARACTERISTICAS_CONFIANCA}
+        return {nome: float(coef) for nome, coef in zip(CARACTERISTICAS_CONFIANCA, self.regressao.coef_[0])}
+
+    def descrever(self) -> dict:
+        """Resumo para `pesos_modelo.json`: pesos na escala padronizada, intercepto e o tamanho do treino."""
+        return {
+            "C": self.C,
+            "n_opcoes": self.n_opcoes,
+            "n_certas": self.n_certas,
+            "intercepto": float(self.regressao.intercept_[0]) if self.regressao is not None else None,
+            "constante": self.constante,
+            "pesos": self.pesos_legiveis(),
+            "media": (dict(zip(CARACTERISTICAS_CONFIANCA, map(float, self.escalador.mean_)))
+                      if self.escalador is not None else None),
+            "escala": (dict(zip(CARACTERISTICAS_CONFIANCA, map(float, self.escalador.scale_)))
+                       if self.escalador is not None else None),
+        }

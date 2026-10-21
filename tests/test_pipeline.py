@@ -133,7 +133,12 @@ def test_tudo_ponta_a_ponta_com_comparacao_de_fontes(caminhos, sem_rede, capsys)
     limiares = json.loads((pasta / "limiares.json").read_text(encoding="utf-8"))
     assert limiares["publicar"] == resumo["limiares"]["publicar"]
     pesos = json.loads((pasta / "pesos_modelo.json").read_text(encoding="utf-8"))
-    assert set(pesos) == {"pares", "fora"} and "cos_tema" in pesos["pares"]["pesos"]
+    assert set(pesos) == {"pares", "fora", "confianca"} and "cos_tema" in pesos["pares"]["pesos"]
+    assert "votos" in pesos["pares"]["pesos"] and set(pesos["confianca"]["pesos"]) >= {"votos", "votos_ramo", "p"}
+    texto = (pasta / "probabilidades.jsonl").read_text(encoding="utf-8")
+    probabilidades = [json.loads(linha) for linha in texto.splitlines()]
+    assert all(0 <= o["confianca"] <= 1 for linha in probabilidades for o in linha["opcoes"])
+    assert resumo["n_efetivo"] == pytest.approx(resumo["publicadas_dobras"] / 3)
     gravado = json.loads((pasta / "resumo.json").read_text(encoding="utf-8"))
     assert gravado["contagens"] == resumo["contagens"] and gravado["tempo_segundos"] >= 0
 

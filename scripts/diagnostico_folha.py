@@ -3,8 +3,7 @@
 Para uma repetição de 5 dobras, mede em cada questão de teste da árvore (não fora):
 - recall dos candidatos: algum alvo aceito (central, extra ou pai/filho deles) está entre os candidatos?
 - posição do primeiro alvo aceito na ordenação por probabilidade (top-1, top-3, top-5);
-- distribuição de p_max quando o top-1 está certo e quando está errado;
-- quais buscas trouxeram o alvo certo.
+- distribuição de p_max e da confiança do segundo estágio quando o top-1 está certo e quando está errado.
 
 Uso: uv run python scripts/diagnostico_folha.py [--com-corpus]
 """
@@ -12,8 +11,6 @@ from __future__ import annotations
 
 import argparse
 import sys
-from collections import Counter
-
 import numpy as np
 
 sys.stdout.reconfigure(encoding="utf-8")
@@ -32,7 +29,8 @@ def main() -> None:
     linhas = {r["id"]: r for r in folha.to_dict("records")}
     arv = ctx.arvore
 
-    posicoes, pmax_certo, pmax_errado, recall, n_cand, origem_certa = [], [], [], [], [], Counter()
+    posicoes, pmax_certo, pmax_errado, recall, n_cand = [], [], [], [], []
+    conf_certo, conf_errado = [], []
     for ids_treino, ids_teste in dobras(folha, n_dobras=5, repeticoes=1, arvore=arv):
         res = rodar_dobra(ctx, ids_treino, ids_teste, args.com_corpus)
         for r in res.to_dict("records"):
@@ -46,6 +44,7 @@ def main() -> None:
             pos = next((i for i, t in enumerate(cand) if t in alvos), None)
             posicoes.append(pos)
             (pmax_certo if pos == 0 else pmax_errado).append(r["p_max"])
+            (conf_certo if pos == 0 else conf_errado).append(r["confianca_tema"])
 
     n = len(posicoes)
     def taxa(k):
@@ -59,6 +58,12 @@ def main() -> None:
     for limiar in (0.2, 0.3, 0.4, 0.5, 0.6):
         c = sum(1 for p in pmax_certo if p >= limiar); e = sum(1 for p in pmax_errado if p >= limiar)
         print(f"  p_max >= {limiar:.1f}: publicaria {c + e} ({(c + e)/n:.0%}), certas {c}, precisão {c/max(c+e,1):.0%}")
+    print(f"confiança do tema quando top-1 certo (n={len(conf_certo)}): quantis 10/25/50/75/90 = {q(conf_certo)}")
+    print(f"confiança do tema quando top-1 errado (n={len(conf_errado)}): quantis 10/25/50/75/90 = {q(conf_errado)}")
+    for limiar in (0.6, 0.7, 0.8, 0.9):
+        c = sum(1 for p in conf_certo if p >= limiar); e = sum(1 for p in conf_errado if p >= limiar)
+        print(f"  confiança >= {limiar:.1f}: publicaria {c + e} ({(c + e)/n:.0%}), certas {c}, "
+              f"precisão {c/max(c+e,1):.0%}")
 
 
 if __name__ == "__main__":

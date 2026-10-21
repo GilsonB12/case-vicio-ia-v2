@@ -19,15 +19,17 @@ from sistema.calibracao import (
     estratos,
     grade,
     intervalo_beta,
+    opcoes_fora_da_amostra,
     precisao_jeffreys,
     regra_tres_pontos,
     rodar_dobra,
     tipo_erro,
     treinar_final,
+    treinar_rodada,
     validar,
 )
-from sistema.decisao import Limiares
-from sistema.modelo import DetectorFora, ModeloPares
+from sistema.decisao import Limiares, Opcao
+from sistema.modelo import CARACTERISTICAS_CONFIANCA, DetectorFora, ModeloConfianca, ModeloPares
 
 
 @pytest.fixture(scope="module")
@@ -82,15 +84,17 @@ def test_estrato_pequeno_vira_outros_sem_aviso(arvore):
 # --- vazamento ---------------------------------------------------------------------------------------------
 
 
-def test_rodar_dobra_sem_vazamento(ctx, monkeypatch):
-    treino, teste = dobras(ctx.folha, arvore=ctx.arvore)[0]
-    vistos = {"indice": [], "pares": [], "detector": []}
+@pytest.fixture
+def espioes(ctx, monkeypatch):
+    """Grava os ids de cada índice kNN montado e de cada treino de pares, detector e confiança."""
+    vistos = {"indice": [], "pares": [], "detector": [], "confianca": []}
     indice_original = type(ctx).indice_rotulado
     treinar_pares, treinar_detector = ModeloPares.treinar, DetectorFora.treinar
+    treinar_confianca = ModeloConfianca.treinar
 
     def indice_espiao(self, ids_folha_treino, com_corpus=False):
         indice, pesos = indice_original(self, ids_folha_treino, com_corpus)
-        vistos["indice"].append(list(indice.ids))
+        vistos["indice"].append(set(indice.ids))
         return indice, pesos
 
     def pares_espiao(self, tabela, rotulos, pesos):
@@ -101,27 +105,65 @@ def test_rodar_dobra_sem_vazamento(ctx, monkeypatch):
         vistos["detector"].append(set(tabela_q["id"]))
         return treinar_detector(self, tabela_q, rotulos, pesos)
 
+    def confianca_espiao(self, opcoes, rotulos):
+        vistos["confianca"].append(opcoes.copy())
+        return treinar_confianca(self, opcoes, rotulos)
+
     monkeypatch.setattr(type(ctx), "indice_rotulado", indice_espiao)
     monkeypatch.setattr(ModeloPares, "treinar", pares_espiao)
     monkeypatch.setattr(DetectorFora, "treinar", detector_espiao)
+    monkeypatch.setattr(ModeloConfianca, "treinar", confianca_espiao)
+    return vistos
+
+
+def test_rodar_dobra_sem_vazamento(ctx, espioes):
+    treino, teste = dobras(ctx.folha, arvore=ctx.arvore)[0]
     resultado = rodar_dobra(ctx, treino, teste, com_corpus=True)
 
     assert list(resultado.columns) == COLUNAS_DOBRA
     assert list(resultado["id"]) == teste
-    [ids_indice] = vistos["indice"]
-    [ids_pares] = vistos["pares"]
-    [ids_detector] = vistos["detector"]
-    assert not set(teste) & set(ids_indice)
-    assert not set(teste) & ids_pares
-    assert not set(teste) & ids_detector
-    # o índice tem a folha de treino, os exemplos e o corpus; os pares, a folha de treino, os exemplos com tema e
-    # o corpus; o detector, a folha de treino e todos os exemplos
+    # 5 dobras internas da confiança e a rodada: nenhuma questão de teste externo em índice nem treino nenhum
+    assert len(espioes["indice"]) == len(espioes["pares"]) == 6
+    for ids in [*espioes["indice"], *espioes["pares"], *espioes["detector"]]:
+        assert not set(teste) & ids
+    [opcoes_confianca] = espioes["confianca"]
+    ids_confianca = set(opcoes_confianca["id"])
+    assert not set(teste) & ids_confianca
+    nao_fora = {i for i in treino if not ctx.linha_folha(i)["fora"]}
+    assert ids_confianca == nao_fora  # todas as questões de treino da árvore, nenhuma fora da taxonomia
+    # a rodada (último treino): o índice tem a folha de treino, os exemplos e o corpus; os pares, a folha de
+    # treino, os exemplos com tema e o corpus; o detector, a folha de treino e todos os exemplos
     exemplos = {e["id"] for e in ctx.exemplos}
     exemplos_tema = {e["id"] for e in ctx.exemplos if e["tema_id"] is not None}
     corpus = {c["id"] for c in ctx.corpus}
-    assert set(ids_indice) == set(treino) | exemplos | corpus
-    assert ids_pares == set(treino) | exemplos_tema | corpus
+    [ids_detector] = espioes["detector"]
+    assert espioes["indice"][-1] == set(treino) | exemplos | corpus
+    assert espioes["pares"][-1] == set(treino) | exemplos_tema | corpus
     assert ids_detector == set(treino) | exemplos
+
+
+def test_validacao_interna_preve_cada_questao_sem_ela_no_treino(ctx, espioes):
+    treino, _ = dobras(ctx.folha, arvore=ctx.arvore)[0]
+    opcoes = opcoes_fora_da_amostra(ctx, treino, com_corpus=False)
+    assert set(opcoes["dobra_interna"]) == {0, 1, 2, 3, 4}
+    assert len(espioes["indice"]) == len(espioes["pares"]) == 5 and not espioes["detector"]
+    for dobra, ids_indice, ids_pares in zip(range(5), espioes["indice"], espioes["pares"]):
+        previstas = set(opcoes.loc[opcoes["dobra_interna"] == dobra, "id"])
+        assert previstas and not previstas & ids_indice and not previstas & ids_pares
+        assert (ids_indice & set(ctx.ids_folha)) == set(treino) - previstas - {
+            i for i in treino if ctx.linha_folha(i)["fora"] and i not in ids_indice}
+    # rótulo pela régua; o ramo só aparece com top-1 de nível 2
+    assert set(opcoes["opcao"]) <= {"tema", "ramo"} and set(opcoes["acerto"]) <= {0, 1}
+    for linha in opcoes.to_dict("records"):
+        assert linha["acerto"] == calibracao.acerto_regua(linha["tema_id"], ctx.linha_folha(linha["id"]), ctx.arvore)
+    assert (opcoes.groupby("id")["opcao"].apply(list).map(lambda o: o[0] == "tema")).all()
+    assert set(CARACTERISTICAS_CONFIANCA) <= set(opcoes.columns)
+
+
+def test_validacao_interna_com_poucas_questoes(ctx):
+    assert opcoes_fora_da_amostra(ctx, ["Q0001"], com_corpus=False).empty
+    rodada = treinar_rodada(ctx, ["Q0001"], com_corpus=False)
+    assert rodada.confianca.treinado and rodada.confianca.constante == 0.0
 
 
 def test_questao_de_teste_no_treino_e_erro(ctx):
@@ -135,6 +177,12 @@ def test_rodar_dobra_resultado(ctx):
     for id_q, linha in resultado.iterrows():
         soma = sum(p for _, p in linha["candidatos_prob"])
         assert soma == pytest.approx(1.0)
+        opcoes = linha["opcoes"]
+        assert opcoes[0].opcao == "tema" and opcoes[0].tema_id == linha["tema_max"]
+        assert all(0 <= o.confianca <= 1 for o in opcoes) and linha["confianca_tema"] == opcoes[0].confianca
+        assert 0 <= linha["votos"] <= linha["votos_ramo"] <= 4
+        if len(opcoes) == 2:
+            assert opcoes[1].opcao == "ramo" and opcoes[1].tema_id == ctx.arvore.pai(linha["tema_max"])
         assert linha["p_max"] == pytest.approx(linha["candidatos_prob"][0][1])
         assert linha["tema_max"] == linha["candidatos_prob"][0][0]
         assert 0 <= linha["p_fora"] <= 1
@@ -147,26 +195,30 @@ def test_rodar_dobra_resultado(ctx):
 # --- grade ---------------------------------------------------------------------------------------------------
 
 
-def resultado(id_q, temas, p_fora, central, extras=(), fora=False, ramos=(), arvore=None):
+def resultado(id_q, temas, p_fora, central, confianca, extras=(), fora=False, ramo=None, repeticao=0):
+    """Linha de `rodar_dobra` à mão: `confianca` da opção tema; `ramo` = (pai, confiança) da opção ramo."""
     temas = sorted(temas, key=lambda par: -par[1])
-    ramos = sorted(ramos, key=lambda par: -par[1])
+    opcoes = [Opcao("tema", temas[0][0], confianca, 2)]
+    if ramo is not None:
+        opcoes.append(Opcao("ramo", ramo[0], ramo[1], 0))
     return {
-        "id": id_q, "p_max": temas[0][1], "tema_max": temas[0][0], "p_ramo_max": ramos[0][1] if ramos else 0.0,
-        "pai_max": ramos[0][0] if ramos else None, "p_fora": p_fora, "candidatos_prob": temas, "ramos": ramos,
-        "gatilhos": [], "fora": fora, "tema_central_id": central, "extras_ids": list(extras), "alvos": [],
+        "id": id_q, "p_max": temas[0][1], "tema_max": temas[0][0], "p_ramo_max": 0.0, "pai_max": None,
+        "p_fora": p_fora, "candidatos_prob": temas, "ramos": [], "opcoes": opcoes, "confianca_tema": confianca,
+        "confianca_ramo": ramo[1] if ramo else None, "votos": 2, "votos_ramo": 2, "gatilhos": [], "fora": fora,
+        "tema_central_id": central, "extras_ids": list(extras), "alvos": [], "repeticao": repeticao,
     }
 
 
 @pytest.fixture
 def resultados_a_mao():
     return pd.DataFrame([
-        resultado("Q1", [(FURTO, 0.9), (ROUBO, 0.1)], 0.1, FURTO),  # certo
-        resultado("Q2", [(ROUBO, 0.85), (FURTO, 0.15)], 0.1, FURTO),  # irmão: erro
-        resultado("Q3", [(DROGAS, 0.5), (FURTO, 0.5)], 0.95, None, fora=True),  # fora certo
-        resultado("Q4", [(MARIA_DA_PENHA, 0.95), (DROGAS, 0.05)], 0.2, None, fora=True),  # fora publicada
-        resultado("Q5", [(FURTO, 0.6), (PATRIMONIO, 0.3), (DROGAS, 0.1)], 0.45, ROUBO, extras=[DROGAS],
-                  ramos=[(PATRIMONIO, 0.9)]),  # pai publicado pelo ramo: certo (pai de Roubo)
-    ], columns=COLUNAS_DOBRA)
+        resultado("Q1", [(FURTO, 0.3), (ROUBO, 0.1)], 0.1, FURTO, 0.90),  # certo
+        resultado("Q2", [(ROUBO, 0.25), (FURTO, 0.15)], 0.1, FURTO, 0.85),  # irmão: erro
+        resultado("Q3", [(DROGAS, 0.5), (FURTO, 0.5)], 0.95, None, 0.99, fora=True),  # fora certo
+        resultado("Q4", [(MARIA_DA_PENHA, 0.35), (DROGAS, 0.05)], 0.2, None, 0.95, fora=True),  # fora publicada
+        resultado("Q5", [(FURTO, 0.3), (PATRIMONIO, 0.2), (DROGAS, 0.1)], 0.45, ROUBO, 0.60, extras=[DROGAS],
+                  ramo=(PATRIMONIO, 0.90)),  # pai publicado pelo ramo: certo (pai de Roubo)
+    ], columns=[*COLUNAS_DOBRA, "repeticao"])
 
 
 def linha(tabela, publicar, fora):
@@ -176,17 +228,40 @@ def linha(tabela, publicar, fora):
 def test_grade_conta_publicadas_acertos_e_fora(resultados_a_mao, arvore):
     tabela = grade(resultados_a_mao, arvore)
     assert len(tabela) == len(GRADE_PUBLICAR) * len(GRADE_FORA)
-    assert GRADE_PUBLICAR[0] == 0.30 and GRADE_PUBLICAR[-1] == 0.95 and len(GRADE_PUBLICAR) == 66
+    assert GRADE_PUBLICAR[0] == 0.50 and GRADE_PUBLICAR[-1] == 0.99 and len(GRADE_PUBLICAR) == 50
 
-    a = linha(tabela, 0.80, 0.9)  # Q1, Q2, Q4 publicadas; Q3 fora; Q5 pelo ramo (0,9)
+    # a grade varre a confiança, não o p: Q1, Q2, Q4 publicadas pela confiança; Q3 fora; Q5 pelo ramo (0,90)
+    a = linha(tabela, 0.80, 0.9)
     assert (a["n"], a["publicadas"], a["acertos"]) == (5, 4, 2)
     assert (a["fora_certos"], a["fora_errados"], a["fora_perdidos"]) == (1, 0, 1)
     assert a["cobertura"] == pytest.approx(4 / 5)
     assert a["precisao"] == pytest.approx((2 + 0.5) / (4 + 1))
+    assert (a["publicadas_efetivas"], a["acertos_efetivos"]) == (4, 2)  # uma repetição só
 
     b = linha(tabela, 0.95, 0.4)  # Q5 vira fora (0,45); Q1, Q2 abaixo de 0,95 revisadas; Q4 publicada (0,95)
     assert (b["publicadas"], b["acertos"], b["revisadas"]) == (1, 0, 2)
     assert (b["fora_certos"], b["fora_errados"], b["fora_perdidos"]) == (1, 1, 1)
+
+
+def test_grade_com_repeticoes_usa_n_efetivo(resultados_a_mao, arvore):
+    repetidos = pd.concat([resultados_a_mao.assign(repeticao=r) for r in range(3)], ignore_index=True)
+    tabela = grade(repetidos, arvore, repeticoes=3)
+    a = linha(tabela, 0.80, 0.9)
+    assert (a["publicadas"], a["acertos"]) == (12, 6)  # contagens brutas: cada questão 3 vezes
+    assert (a["publicadas_efetivas"], a["acertos_efetivos"]) == (4, 2)
+    assert a["precisao"] == pytest.approx((2 + 0.5) / (4 + 1))  # igual à de uma repetição
+    baixo, alto = intervalo_beta([2], [4])
+    assert (a["limite_inferior"], a["limite_superior"]) == (baixo[0], alto[0])
+    # contar as 3 cópias como independentes estreitaria o intervalo
+    baixo_bruto, alto_bruto = intervalo_beta([6], [12])
+    assert alto_bruto[0] - baixo_bruto[0] < a["limite_superior"] - a["limite_inferior"]
+    # sem `repeticoes`, sai da coluna repeticao
+    pd.testing.assert_frame_equal(grade(repetidos, arvore), tabela)
+    # n efetivo fracionário: uma questão publicada em só 2 das 3 repetições conta 2/3
+    parcial = repetidos[~((repetidos["id"] == "Q1") & (repetidos["repeticao"] == 2))]
+    b = linha(grade(parcial, arvore, repeticoes=3), 0.80, 0.9)
+    assert b["publicadas_efetivas"] == pytest.approx(11 / 3) and b["acertos_efetivos"] == pytest.approx(5 / 3)
+    assert b["precisao"] == pytest.approx((5 / 3 + 0.5) / (11 / 3 + 1))
 
 
 def test_grade_aceita_lista_de_dobras(resultados_a_mao, arvore):
@@ -204,6 +279,10 @@ def test_jeffreys_e_intervalo_beta():
     assert 0 < baixo[2] < 0.05 and 0.95 < alto[2] <= 1  # sem publicadas: Beta(0,5; 0,5)
     # determinístico
     assert intervalo_beta([41], [42]) == intervalo_beta([41], [42])
+    # contagens fracionárias (n efetivo)
+    baixo, alto = intervalo_beta([41 / 3], [42 / 3])
+    assert baixo[0] == pytest.approx(stats.beta.ppf(0.025, 41 / 3 + 0.5, 1 / 3 + 0.5), abs=0.01)
+    assert alto[0] == pytest.approx(stats.beta.ppf(0.975, 41 / 3 + 0.5, 1 / 3 + 0.5), abs=0.01)
 
 
 def test_grade_tem_intervalo_em_volta_da_precisao(resultados_a_mao, arvore):
@@ -279,6 +358,12 @@ def test_validar(validacao, ctx):
     assert sum(validacao["erros"].values()) == len(publicadas) - escolhida["acertos"]
     resumo = validacao["resumo"]
     assert resumo["publicar"] == validacao["limiares"].publicar and resumo["com_corpus"] is False
+    # n efetivo: as publicadas das 3 repetições divididas por 3
+    assert resumo["n_efetivo"] == pytest.approx(escolhida["publicadas"] / 3)
+    assert validacao["n_efetivo"] == pytest.approx(resumo["n_efetivo"])
+    assert validacao["precisao"] == pytest.approx(precisao_jeffreys(escolhida["acertos"] / 3,
+                                                                    escolhida["publicadas"] / 3))
+    assert set(validacao["avaliacao"]["confianca_tema"].dropna().between(0, 1)) <= {True}
 
 
 def test_validar_e_deterministica(validacao, ctx):
@@ -334,6 +419,9 @@ def test_treinar_final_usa_os_100_rotulos(ctx, monkeypatch):
         return original(ids_folha_treino, com_corpus)
 
     monkeypatch.setattr(ctx, "indice_rotulado", espiao)
-    modelo, detector = treinar_final(ctx, com_corpus=True)
-    assert vistos == [set(ctx.ids_folha)]
-    assert modelo.treinado and detector.treinado
+    modelo, detector, confianca = treinar_final(ctx, com_corpus=True)
+    # as 5 dobras internas da confiança deixam cada uma um quinto de fora; a última rodada usa a folha toda
+    assert len(vistos) == 6 and vistos[-1] == set(ctx.ids_folha)
+    assert all(v < set(ctx.ids_folha) for v in vistos[:-1])
+    assert set().union(*(set(ctx.ids_folha) - v for v in vistos[:-1])) == set(ctx.ids_folha)
+    assert modelo.treinado and detector.treinado and confianca.treinado

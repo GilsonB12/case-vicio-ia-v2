@@ -14,9 +14,13 @@
 | `n_buscas` | quantas das 4 buscas trouxeram o tema (0 a 4) |
 | `disciplina_bate` | 1 se a `disciplina_origem` normalizada é a disciplina do tema |
 | `prior` | log(1 + questões do tema na fonte, tirado da descrição original) dividido pelo maior entre os temas; 0 sem contagem |
+| `voto_bm25`, `voto_cos`, `voto_dic`, `voto_knn` | 1 se o tema é o top-1 daquela busca (`topos_das_buscas`) |
+| `votos` | soma dos quatro votos (0 a 4) |
+| `votos_ramo` | quantas das quatro buscas têm o top-1 no mesmo ramo (ancestral de nível 1) do tema (0 a 4) |
 
 Os vizinhos são os até 15 já buscados para a questão (`candidatos.gerar_lote`); par sem vizinho do tema tem as
-`knn_*` zeradas. Similaridade negativa conta zero.
+`knn_*` zeradas. Similaridade negativa conta zero. Os votos reaproveitam o BM25 e o cosseno do contexto, o
+dicionário e os mesmos vizinhos: nenhuma busca nova.
 """
 from __future__ import annotations
 
@@ -27,6 +31,7 @@ from collections import Counter, defaultdict
 from collections.abc import Collection, Hashable, Iterable, Mapping
 from typing import TYPE_CHECKING
 
+import numpy as np
 import pandas as pd
 
 from sistema.candidatos import K_KNN, Candidato, Vizinho, buscar_vizinhos
@@ -40,8 +45,11 @@ if TYPE_CHECKING:
 CARACTERISTICAS = [
     "bm25", "cos_tema", "knn_max", "knn_media3", "knn_n10", "knn_folha_max", "dic_lei", "dic_art", "nivel2",
     "pai_de_candidato", "n_buscas", "disciplina_bate", "prior",
+    "voto_bm25", "voto_cos", "voto_dic", "voto_knn", "votos", "votos_ramo",
 ]
 COLUNAS = ["id", "tema_id", *CARACTERISTICAS]
+
+BUSCAS_VOTO = ("bm25", "cos", "dic", "knn")  # `voto_<busca>` de cada uma
 
 N_PROXIMOS = 10
 N_MEDIA = 3
@@ -124,6 +132,75 @@ def _knn_por_tema(
 _KNN_ZERADO = {"knn_max": 0.0, "knn_media3": 0.0, "knn_n10": 0.0, "knn_folha_max": 0.0}
 
 
+def _maior_positivo(pontos: Mapping[int, float], publicaveis: Collection[int]) -> int | None:
+    """Tema publicável de maior pontuação positiva; empate fica com o menor id; None se nenhum pontua."""
+    melhores = [(int(t), float(v)) for t, v in pontos.items() if v > 0 and int(t) in publicaveis]
+    return min(melhores, key=lambda par: (-par[1], par[0]))[0] if melhores else None
+
+
+def _maior_no_vetor(valores: np.ndarray, temas_ids: list[int], mascara: np.ndarray) -> int | None:
+    """Tema publicável (`mascara`) de maior valor positivo no vetor alinhado a `temas_ids`; empate, menor posição."""
+    if not len(valores):
+        return None
+    filtrados = np.where(mascara, np.asarray(valores, dtype=float), -np.inf)
+    posicao = int(np.argmax(filtrados))
+    return int(temas_ids[posicao]) if filtrados[posicao] > 0 else None
+
+
+def topo_knn(vizinhos: Iterable[Vizinho], peso_por_id: Mapping[Hashable, float],
+             publicaveis: Collection[int]) -> int | None:
+    """Tema com a maior soma de similaridade × peso entre os vizinhos rotulados não-fora (similaridade negativa
+    conta zero); empate fica com o menor id."""
+    somas: dict[int, float] = defaultdict(float)
+    for id_vizinho, rotulo, similaridade in vizinhos:
+        if rotulo is None:
+            continue
+        somas[int(rotulo)] += max(0.0, float(similaridade)) * float(peso_por_id.get(id_vizinho, 1.0))
+    return _maior_positivo(somas, publicaveis)
+
+
+def topos_das_buscas(
+    id_item: str,
+    contexto: "Contexto",
+    vizinhos: Iterable[Vizinho],
+    peso_por_id: Mapping[Hashable, float],
+    mascara_publicaveis: np.ndarray | None = None,
+) -> dict[str, int | None]:
+    """Top-1 de cada uma das quatro buscas para o item, só entre temas publicáveis (None quando nada pontua).
+
+    `bm25` e `cos`: maior BM25 e maior cosseno com os temas (do contexto, calculados uma vez por item); `dic`:
+    maior soma de pesos do dicionário (`dicionario.pontuar`); `knn`: `topo_knn` dos vizinhos dados. Empate fica
+    com o menor id do tema.
+    """
+    temas_ids = contexto.temas_ids
+    if mascara_publicaveis is None:
+        mascara_publicaveis = np.array([t in contexto.publicaveis for t in temas_ids], dtype=bool)
+    pontos_dicionario, _ = pontuar(contexto.chaves(id_item), contexto.dicionario)
+    return {
+        "bm25": _maior_no_vetor(contexto.pontuacoes_bm25(id_item), temas_ids, mascara_publicaveis),
+        "cos": _maior_no_vetor(contexto.cossenos_temas(id_item), temas_ids, mascara_publicaveis),
+        "dic": _maior_positivo(pontos_dicionario, contexto.publicaveis),
+        "knn": topo_knn(vizinhos, peso_por_id, contexto.publicaveis),
+    }
+
+
+def votos_do_tema(tema_id: int, topos: Mapping[str, int | None], arvore: "ArvoreTemas") -> dict[str, float]:
+    """`voto_<busca>`, `votos` e `votos_ramo` do par (questão, tema) a partir dos top-1 das buscas."""
+    ramo = _ramo(arvore, tema_id)
+    votos = {f"voto_{busca}": 1.0 if topos.get(busca) == int(tema_id) else 0.0 for busca in BUSCAS_VOTO}
+    votos["votos"] = float(sum(votos.values()))
+    votos["votos_ramo"] = float(sum(
+        1 for busca in BUSCAS_VOTO
+        if topos.get(busca) is not None and ramo is not None and _ramo(arvore, topos[busca]) == ramo
+    ))
+    return votos
+
+
+def _ramo(arvore: "ArvoreTemas", tema_id: int) -> int | None:
+    """Ancestral de nível 1 do tema; None para a raiz de disciplina."""
+    return None if arvore.eh_raiz(int(tema_id)) else arvore.ancestral_nivel1(int(tema_id))
+
+
 def tabela_pares(
     questoes_ids: Iterable[str],
     candidatos_por_id: Mapping[str, list[Candidato]],
@@ -145,6 +222,7 @@ def tabela_pares(
     prior = prior_dos_temas(arvore, contexto.temas_ids)
     disciplina_tema = {tema_id: normalizar_disciplina(arvore.disciplina(tema_id)) for tema_id in contexto.temas_ids}
     folha_treino = set(ids_folha_treino)
+    mascara_publicaveis = np.array([t in contexto.publicaveis for t in contexto.temas_ids], dtype=bool)
     linhas: list[dict] = []
     for id_questao in questoes_ids:
         candidatos = candidatos_por_id.get(id_questao) or []
@@ -159,6 +237,7 @@ def tabela_pares(
         else:
             vizinhos = buscar_vizinhos(id_questao, vetor, indice_rotulado, k_knn)
         knn = _knn_por_tema(vizinhos, peso_por_id, folha_treino)
+        topos = topos_das_buscas(id_questao, contexto, vizinhos, peso_por_id, mascara_publicaveis)
         dic_lei, dic_art = pontos_por_tipo(contexto.chaves(id_questao), contexto.dicionario)
         disciplina = normalizar_disciplina(contexto.disciplina_origem(id_questao))
         ids_candidatos = {c.tema_id for c in candidatos}
@@ -183,6 +262,7 @@ def tabela_pares(
                 "n_buscas": float(candidato.n_buscas),
                 "disciplina_bate": 1.0 if disciplina is not None and disciplina == disciplina_tema[tema_id] else 0.0,
                 "prior": prior.get(tema_id, 0.0),
+                **votos_do_tema(tema_id, topos, arvore),
             })
     tabela = pd.DataFrame(linhas, columns=COLUNAS)
     tabela["tema_id"] = tabela["tema_id"].astype("int64")

@@ -3,14 +3,37 @@
 Uma rodada (`treinar_rodada`) usa só os rótulos de treino que recebe: monta o índice kNN com a folha de treino, os
 exemplos sintéticos e, se ligado, o corpus; gera candidatos e características desses itens; treina o modelo de
 pares (folha de treino com peso 1, exemplos com tema e corpus com peso 0,5) e o detector de fora (folha de treino
-com peso 1, exemplos fora como positivos e exemplos com tema como negativos, peso 0,5). `rodar_dobra` aplica a
-rodada nas questões de teste da dobra, que não entram em nada do treino.
+com peso 1, exemplos fora como positivos e exemplos com tema como negativos, peso 0,5).
+
+O segundo estágio (`ModeloConfianca`) aprende com previsões fora da amostra do modelo de pares: dentro da rodada,
+uma validação interna de `N_DOBRAS_CONFIANCA` dobras nas questões de treino da folha refaz índice e modelo de
+pares nas outras dobras internas e prevê as opções (`tema` e `ramo`) das questões da dobra interna, com o rótulo
+da régua (`opcoes_fora_da_amostra`; questões fora da taxonomia não entram). `rodar_dobra` aplica a rodada nas
+questões de teste da dobra, que não entram em nada do treino.
+
+As dobras da validação rodam em paralelo (`N_TAREFAS` processos; -1 = todos os núcleos; variável de ambiente
+`SISTEMA_TAREFAS`): cada dobra é independente e tem sementes fixas, então o resultado é o mesmo com qualquer número
+de processos. Antes de distribuir, o contexto calcula uma vez as chaves, o BM25 e os cossenos de todos os itens e
+vai uma vez para cada processo (sem o cache de embeddings, que os processos não leem). Se o grupo de processos
+quebrar, as dobras rodam em série.
+
+A grade varre o limiar da confiança do segundo estágio. Com repetições, cada questão da folha aparece uma vez por
+repetição: a precisão de Jeffreys e o intervalo Beta usam as contagens divididas pelo número de repetições
+(n efetivo, que pode ser fracionário).
 """
 from __future__ import annotations
 
 from collections.abc import Hashable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
+
+import copy
+import logging
+import multiprocessing
+import os
+import pickle
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 
 import numpy as np
 import pandas as pd
@@ -20,14 +43,27 @@ from sistema.candidatos import Candidato, Vizinho, gerar_lote
 from sistema.caracteristicas import normalizar_disciplina, tabela_pares
 from sistema.config import SEMENTE
 from sistema.dados import acerto_regua, alvos_aceitos
-from sistema.decisao import FORA, PUBLICAR, Decisao, Limiares, decidir_listas
+from sistema.decisao import (
+    FORA,
+    OPCAO_RAMO,
+    OPCAO_TEMA,
+    PUBLICAR,
+    Decisao,
+    Limiares,
+    Opcao,
+    decidir_listas,
+    opcoes_de_tabela,
+)
 from sistema.modelo import (
+    COLUNAS_OPCOES,
     DetectorFora,
+    ModeloConfianca,
     ModeloPares,
     agregar_ramo,
     gatilhos_fora,
     pesos_por_linha,
     rotulos_pares,
+    tabela_opcoes,
     tabela_questoes,
     temas_positivos,
 )
@@ -38,7 +74,7 @@ if TYPE_CHECKING:
 
 N_DOBRAS = 5
 REPETICOES = 3
-GRADE_PUBLICAR = tuple(round(0.30 + 0.01 * i, 2) for i in range(66))  # 0,30 a 0,95
+GRADE_PUBLICAR = tuple(round(0.50 + 0.01 * i, 2) for i in range(50))  # confiança de 0,50 a 0,99
 GRADE_FORA = (0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
 N_SORTEIOS = 10_000
 CONFIANCA = 0.95
@@ -46,6 +82,11 @@ CONFIANCA = 0.95
 PESO_FOLHA = 1.0
 PESO_EXEMPLO = 0.5
 PESO_CORPUS = 0.5
+
+N_DOBRAS_CONFIANCA = 5
+N_TAREFAS = int(os.environ.get("SISTEMA_TAREFAS", "-1"))  # processos para as dobras da validação
+
+registro = logging.getLogger(__name__)
 
 PRECISAO_ALVO = 0.97
 LIMITE_INFERIOR_ALVO = 0.95
@@ -121,7 +162,11 @@ def dobras(
 
 @dataclass
 class Aplicacao:
-    """Tudo o que uma rodada calcula para um conjunto de ids."""
+    """Tudo o que uma rodada calcula para um conjunto de ids.
+
+    `opcoes`: `modelo.tabela_opcoes` com a coluna `confianca` do segundo estágio (sem o modelo de confiança, como
+    na validação interna, a coluna fica de fora).
+    """
 
     ids: list[str]
     candidatos: dict[str, list[Candidato]]
@@ -131,14 +176,33 @@ class Aplicacao:
     ramos: pd.DataFrame
     tabela_q: pd.DataFrame
     p_fora: pd.Series
+    opcoes: pd.DataFrame
 
     def listas(self, id_item: str) -> tuple[list[tuple[int, float]], list[tuple[int, float]]]:
         """(tema, p) e (pai, p_ramo) da questão, em ordem decrescente."""
         return self._por_id_prob.get(id_item, []), self._por_id_ramo.get(id_item, [])
 
+    def opcoes_de(self, id_item: str) -> list[Opcao]:
+        """As opções da questão (`tema` e, se houver, `ramo`) com a confiança do segundo estágio."""
+        return self._por_id_opcoes.get(id_item, [])
+
+    def linhas_opcoes(self, id_item: str) -> list[dict]:
+        """As linhas de `opcoes` da questão, com as características e a confiança."""
+        return self._linhas_opcoes.get(id_item, [])
+
     def __post_init__(self) -> None:
         self._por_id_prob = _agrupar(self.prob, "p")
         self._por_id_ramo = _agrupar(self.ramos, "p_ramo")
+        self._linhas_opcoes: dict[str, list[dict]] = {}
+        for linha in self.opcoes.to_dict("records"):
+            self._linhas_opcoes.setdefault(str(linha["id"]), []).append(linha)
+        self._por_id_opcoes: dict[str, list[Opcao]] = {}
+        if "confianca" in self.opcoes:
+            self._por_id_opcoes = {
+                id_q: [Opcao(str(linha["opcao"]), int(linha["tema_id"]), float(linha["confianca"]),
+                             int(linha["votos"])) for linha in linhas]
+                for id_q, linhas in self._linhas_opcoes.items()
+            }
 
 
 def _agrupar(tabela: pd.DataFrame, coluna: str) -> dict[str, list[tuple[int, float]]]:
@@ -150,7 +214,8 @@ def _agrupar(tabela: pd.DataFrame, coluna: str) -> dict[str, list[tuple[int, flo
 
 @dataclass
 class Rodada:
-    """Índice, modelo de pares e detector treinados com `ids_treino` da folha (mais exemplos e corpus)."""
+    """Índice, modelo de pares, detector e modelo de confiança treinados com `ids_treino` da folha (mais exemplos e
+    corpus); `ids_confianca` são as questões da folha cujas opções fora da amostra treinaram a confiança."""
 
     contexto: "Contexto"
     com_corpus: bool
@@ -158,14 +223,17 @@ class Rodada:
     indice: object
     pesos_vizinhos: dict[Hashable, float]
     modelo: ModeloPares
-    detector: DetectorFora
+    detector: DetectorFora | None
     ids_pares: list[str] = field(default_factory=list)
     ids_detector: list[str] = field(default_factory=list)
+    confianca: ModeloConfianca | None = None
+    ids_confianca: list[str] = field(default_factory=list)
 
     def aplicar(self, ids: Iterable[str]) -> Aplicacao:
-        """Candidatos, características, `p`, `p_ramo` e `p_fora` dos ids, com o índice e os modelos da rodada."""
+        """Candidatos, características, `p`, `p_ramo`, `p_fora` e opções com confiança dos ids, com o índice e os
+        modelos da rodada (sem detector, `p_fora` é zero; sem modelo de confiança, as opções ficam sem ela)."""
         return _aplicar(self.contexto, list(ids), self.indice, self.pesos_vizinhos, self.ids_treino, self.modelo,
-                        self.detector)
+                        self.detector, self.confianca)
 
 
 def _aplicar(
@@ -175,20 +243,26 @@ def _aplicar(
     pesos_vizinhos: Mapping[Hashable, float],
     ids_treino: Sequence[str],
     modelo: ModeloPares,
-    detector: DetectorFora,
+    detector: DetectorFora | None,
+    confianca: ModeloConfianca | None = None,
 ) -> Aplicacao:
     candidatos, vizinhos = gerar_lote(ids, contexto, indice, pesos_vizinhos)
     pares = tabela_pares(ids, candidatos, contexto, indice, pesos_vizinhos, set(ids_treino), vizinhos_por_id=vizinhos)
     prob = modelo.probabilidades(pares)
     ramos = agregar_ramo(prob, contexto.arvore)
     tabela_q = tabela_questoes(ids, prob, pares, vizinhos, contexto)
-    p_fora = detector.p_fora(tabela_q)
-    return Aplicacao(ids, candidatos, vizinhos, pares, prob, ramos, tabela_q, p_fora)
+    if detector is not None:
+        p_fora = detector.p_fora(tabela_q)
+    else:
+        p_fora = pd.Series(0.0, index=pd.Index(tabela_q["id"].astype(str), name="id"), name="p_fora")
+    opcoes = tabela_opcoes(prob, ramos, pares, contexto)
+    if confianca is not None:
+        opcoes["confianca"] = confianca.confianca(opcoes)
+    return Aplicacao(ids, candidatos, vizinhos, pares, prob, ramos, tabela_q, p_fora, opcoes)
 
 
-def treinar_rodada(contexto: "Contexto", ids_treino: Iterable[str], com_corpus: bool) -> Rodada:
-    """Treina uma rodada só com os rótulos de `ids_treino` (folha), os exemplos e, com `com_corpus`, o corpus."""
-    ids_treino = [str(i) for i in ids_treino]
+def _treinar_base(contexto: "Contexto", ids_treino: list[str], com_corpus: bool, com_detector: bool = True) -> Rodada:
+    """Índice, modelo de pares e (com `com_detector`) detector com os rótulos de `ids_treino`; sem confiança."""
     indice, pesos_vizinhos = contexto.indice_rotulado(ids_treino, com_corpus=com_corpus)
     exemplos_tema = [str(e["id"]) for e in contexto.exemplos if e["tema_id"] is not None]
     exemplos_fora = [str(e["id"]) for e in contexto.exemplos if e["tema_id"] is None]
@@ -197,7 +271,7 @@ def treinar_rodada(contexto: "Contexto", ids_treino: Iterable[str], com_corpus: 
     peso_pares = {**{i: PESO_FOLHA for i in ids_treino}, **{i: PESO_EXEMPLO for i in exemplos_tema},
                   **{i: PESO_CORPUS for i in corpus}}
     ids_pares = [*ids_treino, *exemplos_tema, *corpus]
-    ids_detector = [*ids_treino, *exemplos_fora, *exemplos_tema]
+    ids_detector = [*ids_treino, *exemplos_fora, *exemplos_tema] if com_detector else []
     ids_todos = list(dict.fromkeys([*ids_pares, *ids_detector]))
 
     modelo = ModeloPares()
@@ -207,6 +281,8 @@ def treinar_rodada(contexto: "Contexto", ids_treino: Iterable[str], com_corpus: 
     pares = pares_todos[pares_todos["id"].isin(set(ids_pares))].reset_index(drop=True)
     positivos = {i: temas_positivos(contexto, i) for i in ids_pares}
     modelo.treinar(pares, rotulos_pares(pares, positivos), pesos_por_linha(pares, peso_pares))
+    if not com_detector:
+        return Rodada(contexto, com_corpus, ids_treino, indice, pesos_vizinhos, modelo, None, ids_pares, [])
 
     pares_detector = pares_todos[pares_todos["id"].isin(set(ids_detector))].reset_index(drop=True)
     prob_detector = modelo.probabilidades(pares_detector)
@@ -225,15 +301,73 @@ def treinar_rodada(contexto: "Contexto", ids_treino: Iterable[str], com_corpus: 
                   ids_detector)
 
 
-def treinar_final(contexto: "Contexto", com_corpus: bool) -> tuple[ModeloPares, DetectorFora]:
-    """Modelo de pares e detector treinados com os 100 rótulos da folha (mais exemplos e corpus se ligado)."""
+COLUNAS_OPCOES_TREINO = ["dobra_interna", "acerto"]
+
+
+def opcoes_fora_da_amostra(
+    contexto: "Contexto",
+    ids_treino: Iterable[str],
+    com_corpus: bool,
+    n_dobras: int = N_DOBRAS_CONFIANCA,
+    semente: int = SEMENTE,
+) -> pd.DataFrame:
+    """Opções (`modelo.tabela_opcoes`) das questões de `ids_treino`, previstas fora da amostra, com o rótulo.
+
+    Validação interna de `n_dobras` dobras estratificadas nas questões de treino da folha: em cada uma, índice e
+    modelo de pares são refeitos só com as outras dobras internas (mais exemplos e corpus) e preveem as opções das
+    questões da dobra interna. `acerto` = a opção está certa pela régua; questões fora da taxonomia não entram.
+    Com menos de 2 questões de treino, a tabela sai vazia.
+    """
+    ids_treino = [str(i) for i in ids_treino]
+    vazia = pd.DataFrame(columns=[*COLUNAS_OPCOES, *COLUNAS_OPCOES_TREINO])
+    n = min(int(n_dobras), len(ids_treino))
+    if n < 2:
+        return vazia
+    treino = set(ids_treino)
+    folha = contexto.folha[contexto.folha["id"].astype(str).isin(treino)].reset_index(drop=True)
+    partes: list[pd.DataFrame] = []
+    for numero, (dentro, fora_da_dobra) in enumerate(dobras(folha, n, 1, semente, arvore=contexto.arvore)):
+        teste = [i for i in fora_da_dobra if not bool(contexto.linha_folha(i)["fora"])]
+        if not teste:
+            continue
+        base = _treinar_base(contexto, dentro, com_corpus, com_detector=False)
+        opcoes = base.aplicar(teste).opcoes
+        opcoes["dobra_interna"] = numero
+        opcoes["acerto"] = [
+            int(acerto_regua(int(t), contexto.linha_folha(str(i)), contexto.arvore))
+            for i, t in zip(opcoes["id"], opcoes["tema_id"])
+        ]
+        partes.append(opcoes)
+    return pd.concat(partes, ignore_index=True) if partes else vazia
+
+
+def treinar_rodada(contexto: "Contexto", ids_treino: Iterable[str], com_corpus: bool,
+                   n_dobras_confianca: int = N_DOBRAS_CONFIANCA) -> Rodada:
+    """Treina uma rodada só com os rótulos de `ids_treino` (folha), os exemplos e, com `com_corpus`, o corpus.
+
+    Primeiro a validação interna (`opcoes_fora_da_amostra`) e o `ModeloConfianca` sobre ela; depois o índice, o
+    modelo de pares e o detector da rodada com todas as questões de treino.
+    """
+    ids_treino = [str(i) for i in ids_treino]
+    opcoes = opcoes_fora_da_amostra(contexto, ids_treino, com_corpus, n_dobras_confianca)
+    confianca = ModeloConfianca().treinar(opcoes, opcoes["acerto"].astype(int).to_numpy())
+    rodada = _treinar_base(contexto, ids_treino, com_corpus)
+    rodada.confianca = confianca
+    rodada.ids_confianca = list(dict.fromkeys(str(i) for i in opcoes["id"]))
+    return rodada
+
+
+def treinar_final(contexto: "Contexto", com_corpus: bool) -> tuple[ModeloPares, DetectorFora, ModeloConfianca]:
+    """Modelo de pares, detector e confiança treinados com os 100 rótulos da folha (mais exemplos e corpus se
+    ligado)."""
     rodada = treinar_rodada(contexto, contexto.ids_folha, com_corpus)
-    return rodada.modelo, rodada.detector
+    return rodada.modelo, rodada.detector, rodada.confianca
 
 
 COLUNAS_DOBRA = [
-    "id", "p_max", "tema_max", "p_ramo_max", "pai_max", "p_fora", "candidatos_prob", "ramos", "gatilhos",
-    "fora", "tema_central_id", "extras_ids", "alvos",
+    "id", "p_max", "tema_max", "p_ramo_max", "pai_max", "p_fora", "candidatos_prob", "ramos", "opcoes",
+    "confianca_tema", "confianca_ramo", "votos", "votos_ramo", "gatilhos", "fora", "tema_central_id", "extras_ids",
+    "alvos",
 ]
 
 
@@ -243,6 +377,9 @@ def resultados_teste(contexto: "Contexto", aplicacao: Aplicacao, ids_teste: Iter
     for id_q in ids_teste:
         temas, ramos = aplicacao.listas(id_q)
         linha_folha = contexto.linha_folha(id_q)
+        opcoes = aplicacao.opcoes_de(id_q)
+        por_opcao = {linha["opcao"]: linha for linha in aplicacao.linhas_opcoes(id_q)}
+        do_tema = por_opcao.get(OPCAO_TEMA, {})
         linhas.append({
             "id": id_q,
             "p_max": temas[0][1] if temas else 0.0,
@@ -252,6 +389,11 @@ def resultados_teste(contexto: "Contexto", aplicacao: Aplicacao, ids_teste: Iter
             "p_fora": float(aplicacao.p_fora.get(id_q, 0.0)),
             "candidatos_prob": temas,
             "ramos": ramos,
+            "opcoes": opcoes,
+            "confianca_tema": next((o.confianca for o in opcoes if o.opcao == OPCAO_TEMA), None),
+            "confianca_ramo": next((o.confianca for o in opcoes if o.opcao == OPCAO_RAMO), None),
+            "votos": int(do_tema.get("votos", 0)),
+            "votos_ramo": int(do_tema.get("votos_ramo", 0)),
             "gatilhos": gatilhos_fora(contexto, id_q),
             "fora": bool(linha_folha["fora"]),
             "tema_central_id": linha_folha["tema_central_id"],
@@ -285,16 +427,17 @@ def intervalo_beta(acertos, publicadas, sorteios: int = N_SORTEIOS, semente: int
                    confianca: float = CONFIANCA) -> tuple[np.ndarray, np.ndarray]:
     """Limites do intervalo de `confianca` da Beta(acertos + 0,5, erros + 0,5), por simulação.
 
-    Cada par (acertos, publicadas) distinto é sorteado com um gerador novo na mesma semente: pares iguais têm o
-    mesmo intervalo em qualquer linha da grade, e o ruído da simulação não desempata limiares.
+    As contagens podem ser fracionárias (n efetivo, com repetições). Cada par (acertos, publicadas) distinto é
+    sorteado com um gerador novo na mesma semente: pares iguais têm o mesmo intervalo em qualquer linha da grade,
+    e o ruído da simulação não desempata limiares.
     """
-    acertos = np.atleast_1d(np.asarray(acertos, dtype=int))
-    publicadas = np.atleast_1d(np.asarray(publicadas, dtype=int))
+    acertos = np.atleast_1d(np.asarray(acertos, dtype=float)).round(9)
+    publicadas = np.atleast_1d(np.asarray(publicadas, dtype=float)).round(9)
     cauda = (1 - confianca) / 2
-    limites: dict[tuple[int, int], tuple[float, float]] = {}
+    limites: dict[tuple[float, float], tuple[float, float]] = {}
     for par in set(zip(acertos.tolist(), publicadas.tolist())):
         certos, total = par
-        amostras = np.random.default_rng(semente).beta(certos + 0.5, total - certos + 0.5, size=sorteios)
+        amostras = np.random.default_rng(semente).beta(certos + 0.5, max(total - certos, 0.0) + 0.5, size=sorteios)
         limites[par] = (float(np.quantile(amostras, cauda)), float(np.quantile(amostras, 1 - cauda)))
     pares = list(zip(acertos.tolist(), publicadas.tolist()))
     return np.array([limites[par][0] for par in pares]), np.array([limites[par][1] for par in pares])
@@ -319,13 +462,22 @@ def _ordenados(registros: list[dict]) -> list[dict]:
     def ordenar(lista):
         return sorted(((int(t), float(p)) for t, p in lista), key=lambda par: (-par[1], par[0]))
 
-    return [{**r, "candidatos_prob": ordenar(r["candidatos_prob"]), "ramos": ordenar(r["ramos"])} for r in registros]
+    return [{**r, "candidatos_prob": ordenar(r["candidatos_prob"]), "ramos": ordenar(r["ramos"]),
+             "opcoes": opcoes_de_tabela(r.get("opcoes") or [])} for r in registros]
 
 
 def decidir_resultado(linha: Mapping, limiares: Limiares, arvore: "ArvoreTemas", com_extras: bool = True) -> Decisao:
     """A decisão de uma questão de teste (linha de `rodar_dobra`) com os limiares dados."""
-    return decidir_listas(str(linha["id"]), linha["candidatos_prob"], linha["ramos"], linha["p_fora"], limiares,
+    return decidir_listas(str(linha["id"]), linha["candidatos_prob"], linha["opcoes"], linha["p_fora"], limiares,
                           arvore, linha["gatilhos"], com_extras=com_extras, ordenados=True)
+
+
+def _repeticoes(tabela: pd.DataFrame, repeticoes: int | None) -> int:
+    if repeticoes is not None:
+        return max(1, int(repeticoes))
+    if "repeticao" in tabela and len(tabela):
+        return max(1, int(tabela["repeticao"].nunique()))
+    return 1
 
 
 def grade(
@@ -334,13 +486,20 @@ def grade(
     grade_publicar: Sequence[float] = GRADE_PUBLICAR,
     grade_fora: Sequence[float] = GRADE_FORA,
     semente: int = SEMENTE,
+    repeticoes: int | None = None,
 ) -> pd.DataFrame:
     """Para cada par (publicar, fora): decisões das questões de teste agrupadas, acertos pela régua e intervalos.
 
-    Colunas: `publicar, fora, n, publicadas, acertos, revisadas, fora_decididas, cobertura, precisao,
-    limite_inferior, limite_superior, fora_certos, fora_errados, fora_perdidos`.
+    `publicar` é o limiar da confiança do segundo estágio. Com `repeticoes` (sem ele, o número de valores da coluna
+    `repeticao`, ou 1), cada questão aparece uma vez por repetição: `publicadas_efetivas` e `acertos_efetivos`
+    são as contagens divididas pelas repetições, e a precisão de Jeffreys e o intervalo Beta usam essas contagens.
+
+    Colunas: `publicar, fora, n, publicadas, acertos, publicadas_efetivas, acertos_efetivos, revisadas,
+    fora_decididas, cobertura, precisao, limite_inferior, limite_superior, fora_certos, fora_errados,
+    fora_perdidos`.
     """
     tabela = _como_tabela(resultados_das_dobras)
+    n_repeticoes = _repeticoes(tabela, repeticoes)
     registros = _ordenados(tabela.to_dict("records"))
     linhas_folha = [_linha_folha(r) for r in registros]
     acertou: dict[tuple[int, int], bool] = {}
@@ -370,11 +529,14 @@ def grade(
     if resultado.empty:
         return resultado
     resultado["cobertura"] = resultado["publicadas"] / resultado["n"].where(resultado["n"] > 0, 1)
-    resultado["precisao"] = precisao_jeffreys(resultado["acertos"], resultado["publicadas"])
-    baixo, alto = intervalo_beta(resultado["acertos"], resultado["publicadas"], semente=semente)
+    resultado["publicadas_efetivas"] = resultado["publicadas"] / n_repeticoes
+    resultado["acertos_efetivos"] = resultado["acertos"] / n_repeticoes
+    resultado["precisao"] = precisao_jeffreys(resultado["acertos_efetivos"], resultado["publicadas_efetivas"])
+    baixo, alto = intervalo_beta(resultado["acertos_efetivos"], resultado["publicadas_efetivas"], semente=semente)
     resultado["limite_inferior"], resultado["limite_superior"] = baixo, alto
-    ordem = ["publicar", "fora", "n", "publicadas", "acertos", "revisadas", "fora_decididas", "cobertura", "precisao",
-             "limite_inferior", "limite_superior", "fora_certos", "fora_errados", "fora_perdidos"]
+    ordem = ["publicar", "fora", "n", "publicadas", "acertos", "publicadas_efetivas", "acertos_efetivos", "revisadas",
+             "fora_decididas", "cobertura", "precisao", "limite_inferior", "limite_superior", "fora_certos",
+             "fora_errados", "fora_perdidos"]
     return resultado[ordem]
 
 
@@ -458,6 +620,10 @@ def avaliar(resultados: pd.DataFrame, limiares: Limiares, arvore: "ArvoreTemas")
             "tema_central_id": decisao.tema_central_id,
             "extras_ids": ";".join(map(str, decisao.extras_ids)),
             "confianca": decisao.confianca,
+            "confianca_tema": registro.get("confianca_tema"),
+            "confianca_ramo": registro.get("confianca_ramo"),
+            "votos": registro.get("votos"),
+            "votos_ramo": registro.get("votos_ramo"),
             "acerto": acerto,
             "tipo_erro": tipo_erro(decisao.tema_central_id, linha_folha, arvore) if publicada and not acerto else None,
             "p_max": registro["p_max"],
@@ -493,25 +659,79 @@ def resumo_validacao(validacao: Mapping) -> dict:
         "publicadas": int(escolhida["publicadas"]),
         "acertos": int(escolhida["acertos"]),
         "n": int(escolhida["n"]),
+        "repeticoes": int(validacao["repeticoes"]),
+        "n_efetivo": float(escolhida["publicadas_efetivas"]),
+        "acertos_efetivos": float(escolhida["acertos_efetivos"]),
         "erros": dict(validacao["erros"]),
     }
 
 
+def aquecer(contexto: "Contexto") -> None:
+    """Calcula as chaves, o BM25 e os cossenos de todos os itens do contexto (as partes que não mudam entre as
+    dobras), para os processos da validação receberem o contexto já com elas."""
+    for id_item in contexto.vetores:
+        contexto.chaves(id_item)
+        contexto.pontuacoes_bm25(id_item)
+        contexto.cossenos_temas(id_item)
+
+
+_CONTEXTO_DO_PROCESSO: "Contexto | None" = None
+
+
+def _instalar_contexto(dados: bytes) -> None:
+    """Inicializador de cada processo da validação: o contexto chega uma vez, já serializado."""
+    global _CONTEXTO_DO_PROCESSO
+    _CONTEXTO_DO_PROCESSO = pickle.loads(dados)
+
+
+def _rodar_dobra_no_processo(ids_treino: list[str], ids_teste: list[str], com_corpus: bool) -> pd.DataFrame:
+    return rodar_dobra(_CONTEXTO_DO_PROCESSO, ids_treino, ids_teste, com_corpus)
+
+
+def numero_de_processos(n_tarefas: int | None, n_dobras: int) -> int:
+    """Processos para `n_dobras` dobras: `n_tarefas` (None = `N_TAREFAS`; negativo conta a partir do total de
+    núcleos, como no joblib: -1 = todos), no máximo um por dobra e pelo menos 1."""
+    n_tarefas = N_TAREFAS if n_tarefas is None else int(n_tarefas)
+    if n_tarefas < 0:
+        n_tarefas = max(1, (os.cpu_count() or 1) + 1 + n_tarefas)
+    return max(1, min(n_tarefas, n_dobras))
+
+
+def rodar_dobras(contexto: "Contexto", lista_dobras: Sequence[tuple[list[str], list[str]]], com_corpus: bool,
+                 n_tarefas: int | None = None) -> list[pd.DataFrame]:
+    """`rodar_dobra` de cada (treino, teste), na ordem dada; com mais de um processo, em paralelo."""
+    lista_dobras = list(lista_dobras)
+    processos = numero_de_processos(n_tarefas, len(lista_dobras))
+    if processos > 1:
+        aquecer(contexto)
+        enviado = copy.copy(contexto)
+        enviado.cache = None
+        dados = pickle.dumps(enviado, protocol=pickle.HIGHEST_PROTOCOL)
+        try:
+            with ProcessPoolExecutor(max_workers=processos, mp_context=multiprocessing.get_context("spawn"),
+                                     initializer=_instalar_contexto, initargs=(dados,)) as executor:
+                return list(executor.map(_rodar_dobra_no_processo, [t for t, _ in lista_dobras],
+                                         [t for _, t in lista_dobras], [com_corpus] * len(lista_dobras)))
+        except BrokenProcessPool as erro:
+            registro.warning("processos da validação quebraram (%s); as dobras rodam em série", erro)
+    return [rodar_dobra(contexto, treino, teste, com_corpus) for treino, teste in lista_dobras]
+
+
 def validar(contexto: "Contexto", com_corpus: bool, n_dobras: int = N_DOBRAS, repeticoes: int = REPETICOES,
-            semente: int = SEMENTE) -> dict:
+            semente: int = SEMENTE, n_tarefas: int | None = None) -> dict:
     """Validação cruzada na folha: dobras, grade, escolha pela escada, previsão e matriz de tipos de erro."""
     lista_dobras = dobras(contexto.folha, n_dobras, repeticoes, semente, arvore=contexto.arvore)
     partes: list[pd.DataFrame] = []
     registro_dobras: list[dict] = []
-    for numero, (treino, teste) in enumerate(lista_dobras):
+    por_dobra = rodar_dobras(contexto, lista_dobras, com_corpus, n_tarefas)
+    for numero, ((treino, teste), resultado) in enumerate(zip(lista_dobras, por_dobra)):
         repeticao, dobra = divmod(numero, n_dobras)
-        resultado = rodar_dobra(contexto, treino, teste, com_corpus)
         resultado.insert(0, "dobra", dobra)
         resultado.insert(0, "repeticao", repeticao)
         partes.append(resultado)
         registro_dobras.append({"repeticao": repeticao, "dobra": dobra, "treino": treino, "teste": teste})
     resultados = _como_tabela(partes)
-    tabela_grade = grade(resultados, contexto.arvore, semente=semente)
+    tabela_grade = grade(resultados, contexto.arvore, semente=semente, repeticoes=repeticoes)
     limiares, degrau = escolher(tabela_grade)
     escolhida = linha_da_grade(tabela_grade, limiares)
     avaliacao = avaliar(resultados, limiares, contexto.arvore)
@@ -528,6 +748,7 @@ def validar(contexto: "Contexto", com_corpus: bool, n_dobras: int = N_DOBRAS, re
         "precisao": float(escolhida["precisao"]),
         "precisao_intervalo": [float(escolhida["limite_inferior"]), float(escolhida["limite_superior"])],
         "cobertura": float(escolhida["cobertura"]),
+        "n_efetivo": float(escolhida["publicadas_efetivas"]),
         "avaliacao": avaliacao,
         "erros": matriz_erros(avaliacao),
     }

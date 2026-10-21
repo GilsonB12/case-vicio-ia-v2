@@ -17,6 +17,7 @@ import pandas as pd
 
 from sistema import config
 from sistema.calibracao import (
+    N_DOBRAS_CONFIANCA,
     Aplicacao,
     comparar_fontes,
     resumir_grade,
@@ -71,9 +72,9 @@ def decidir_todas(contexto: Contexto, aplicacao: Aplicacao, limiares) -> list[De
     decisoes = []
     for id_q in contexto.questoes["id"]:
         id_q = str(id_q)
-        temas, ramos = aplicacao.listas(id_q)
-        decisoes.append(decidir_listas(id_q, temas, ramos, float(aplicacao.p_fora.get(id_q, 0.0)), limiares,
-                                       contexto.arvore, gatilhos_fora(contexto, id_q), ordenados=True))
+        temas, _ = aplicacao.listas(id_q)
+        decisoes.append(decidir_listas(id_q, temas, aplicacao.opcoes_de(id_q), float(aplicacao.p_fora.get(id_q, 0.0)),
+                                       limiares, contexto.arvore, gatilhos_fora(contexto, id_q), ordenados=True))
     return decisoes
 
 
@@ -101,6 +102,8 @@ def _gravar_intermediarios(pasta: Path, contexto: Contexto, aplicacao: Aplicacao
             "id": id_q,
             "temas": [{"tema_id": t, "s": round(s_por_par[(id_q, t)], 6), "p": round(p, 6)} for t, p in temas],
             "ramos": [{"tema_id": t, "p_ramo": round(p, 6)} for t, p in ramos],
+            "opcoes": [{k: (round(float(v), 6) if isinstance(v, (float, np.floating)) else v)
+                        for k, v in linha.items() if k != "id"} for linha in aplicacao.linhas_opcoes(id_q)],
             "p_fora": round(float(aplicacao.p_fora.get(id_q, 0.0)), 6),
             "caracteristicas_fora": {k: round(float(v), 6) for k, v in tabela_q.loc[id_q].items()},
         })
@@ -118,7 +121,8 @@ def _gravar_intermediarios(pasta: Path, contexto: Contexto, aplicacao: Aplicacao
             "com_corpus": validacao["com_corpus"],
             "resumo": validacao["resumo"],
         })
-    gravar_json(pasta / "pesos_modelo.json", {"pares": rodada.modelo.descrever(), "fora": rodada.detector.descrever()})
+    gravar_json(pasta / "pesos_modelo.json", {"pares": rodada.modelo.descrever(), "fora": rodada.detector.descrever(),
+                                              "confianca": rodada.confianca.descrever()})
     gravar_json(pasta / "resumo.json", resumo)
 
 
@@ -165,11 +169,14 @@ def tudo(com_corpus: bool | None = None, caminhos: Caminhos | None = None, impri
         "publicadas_dobras": int(escolhida["publicadas"]),
         "acertos_dobras": int(escolhida["acertos"]),
         "n_teste_dobras": int(escolhida["n"]),
+        "n_efetivo": float(escolhida["publicadas_efetivas"]),
+        "acertos_efetivos": float(escolhida["acertos_efetivos"]),
         "degrau": validacao["degrau"],
         "limiares": asdict(limiares),
         "com_corpus": usar_corpus,
         "n_rotulos": len(folha),
         "n_dobras": validacao["n_dobras"],
+        "n_dobras_confianca": N_DOBRAS_CONFIANCA,
         "repeticoes": validacao["repeticoes"],
         "n_questoes": len(decisoes),
         "n_avaliadas": len(avaliadas),
@@ -224,15 +231,16 @@ def formatar_validacao(validacao: Mapping) -> str:
     linhas = [
         f"Validação cruzada na folha ({fonte}): {len(validacao['dobras'])} dobras, "
         f"{len(validacao['resultados'])} avaliações de teste",
-        f"Escolha: publicar ≥ {lim.publicar:.2f}, fora ≥ {lim.fora:.2f} (degrau {validacao['degrau']}); "
+        f"Escolha: confiança ≥ {lim.publicar:.2f}, fora ≥ {lim.fora:.2f} (degrau {validacao['degrau']}); "
         f"precisão {_n(validacao['precisao'])} [{_n(validacao['precisao_intervalo'][0])}, "
-        f"{_n(validacao['precisao_intervalo'][1])}], cobertura {_n(validacao['cobertura'])}",
+        f"{_n(validacao['precisao_intervalo'][1])}] com n efetivo {validacao['n_efetivo']:.1f}, "
+        f"cobertura {_n(validacao['cobertura'])}",
         "",
         f"Grade no limiar de fora {lim.fora:.2f}:",
     ]
     resumo = resumir_grade(validacao["grade"], lim)
-    colunas = ["publicar", "publicadas", "acertos", "cobertura", "precisao", "limite_inferior", "fora_certos",
-               "fora_errados", "fora_perdidos"]
+    colunas = ["publicar", "publicadas", "acertos", "publicadas_efetivas", "cobertura", "precisao", "limite_inferior",
+               "fora_certos", "fora_errados", "fora_perdidos"]
     linhas.append(resumo[colunas].to_string(index=False, float_format=lambda x: f"{x:.3f}"))
     erros = validacao["erros"]
     linhas += [
@@ -244,13 +252,15 @@ def formatar_validacao(validacao: Mapping) -> str:
     return "\n".join(linhas)
 
 
+COLUNAS_COMPARACAO = ("publicar", "fora", "degrau", "precisao", "limite_inferior", "cobertura", "publicadas",
+                      "acertos", "n_efetivo")
+
+
 def formatar_comparacao(comparacao: Mapping) -> str:
     sem, com = comparacao["sem_corpus"], comparacao["com_corpus"]
     tabela = pd.DataFrame([
-        {"fonte": "A sem corpus", **{k: sem[k] for k in ("publicar", "fora", "degrau", "precisao", "limite_inferior",
-                                                        "cobertura", "publicadas", "acertos")}},
-        {"fonte": "B com corpus", **{k: com[k] for k in ("publicar", "fora", "degrau", "precisao", "limite_inferior",
-                                                        "cobertura", "publicadas", "acertos")}},
+        {"fonte": "A sem corpus", **{k: sem[k] for k in COLUNAS_COMPARACAO}},
+        {"fonte": "B com corpus", **{k: com[k] for k in COLUNAS_COMPARACAO}},
     ])
     veredito = "aprovado" if comparacao["corpus_aprovado"] else "fora"
     return "\n".join([
@@ -266,10 +276,11 @@ def formatar_resumo(resumo: Mapping, caminhos: Caminhos) -> str:
     return "\n".join([
         f"Tempo total: {resumo['tempo_segundos']:.1f} s",
         f"Decisões nas {resumo['n_questoes']} questões: " + ", ".join(f"{d} {contagens[d]}" for d in DECISOES),
-        f"Fonte: {'com' if resumo['com_corpus'] else 'sem'} corpus; limiares publicar {lim['publicar']:.2f}, "
+        f"Fonte: {'com' if resumo['com_corpus'] else 'sem'} corpus; limiares confiança {lim['publicar']:.2f}, "
         f"fora {lim['fora']:.2f} (degrau {resumo['degrau']})",
         f"Precisão prevista {resumo['precisao']:.2f} ({resumo['precisao_intervalo'][0]:.2f}-"
-        f"{resumo['precisao_intervalo'][1]:.2f}); cobertura prevista {resumo['cobertura']:.2f} nas "
+        f"{resumo['precisao_intervalo'][1]:.2f}, n efetivo {resumo['n_efetivo']:.1f}); "
+        f"cobertura prevista {resumo['cobertura']:.2f} nas "
         f"{resumo['n_avaliadas']} fora da folha (dobras: {resumo['cobertura_dobras']:.2f})",
         f"Gravados {caminhos.publicacao}, {caminhos.previsao} e {caminhos.intermediarios}",
     ])

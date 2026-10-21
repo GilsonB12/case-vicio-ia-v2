@@ -6,9 +6,11 @@ import pytest
 from apoio_contexto import (
     DIMENSAO,
     DISPOSICOES,
+    DROGAS,
     ESTELIONATO,
     FURTO,
     MARIA_DA_PENHA,
+    MARIA_DA_PENHA_DUP,
     PATRIMONIO,
     ROUBO,
     montar,
@@ -21,6 +23,9 @@ from sistema.caracteristicas import (
     normalizar_disciplina,
     prior_dos_temas,
     tabela_pares,
+    topo_knn,
+    topos_das_buscas,
+    votos_do_tema,
 )
 from sistema.vizinhos import IndiceVetorial
 
@@ -72,9 +77,11 @@ def test_colunas_e_uma_linha_por_par_na_ordem_dos_candidatos(tabela_q0001):
     assert set(CARACTERISTICAS) == {
         "bm25", "cos_tema", "knn_max", "knn_media3", "knn_n10", "knn_folha_max", "dic_lei", "dic_art", "nivel2",
         "pai_de_candidato", "n_buscas", "disciplina_bate", "prior",
+        "voto_bm25", "voto_cos", "voto_dic", "voto_knn", "votos", "votos_ramo",
     }
     assert list(tabela["tema_id"]) == [c.tema_id for c in CANDIDATOS_Q0001]
-    assert (tabela[[c for c in CARACTERISTICAS if c not in ("n_buscas", "dic_lei", "dic_art")]]
+    contagens = ("n_buscas", "dic_lei", "dic_art", "votos", "votos_ramo")
+    assert (tabela[[c for c in CARACTERISTICAS if c not in contagens]]
             .apply(lambda coluna: coluna.between(0, 1)).all().all())
 
 
@@ -219,3 +226,64 @@ def test_com_candidatos_gerados_de_verdade(ctx):
     assert len(tabela) == sum(len(c) for c in candidatos.values())
     assert set(tabela["n_buscas"]) <= {0, 1, 2, 3, 4}
     assert DISPOSICOES in set(tabela.loc[tabela["id"] == "Q0001", "tema_id"])  # filho do pai que veio pelo dicionário
+
+
+# --- votos das buscas ----------------------------------------------------------------------------------------
+
+
+def votos_por_tema(tabela, id_questao):
+    colunas = ("voto_bm25", "voto_cos", "voto_dic", "voto_knn", "votos", "votos_ramo")
+    return {t: tuple(int(linha[c]) for c in colunas) for t, linha in linhas_por_tema(tabela, id_questao).items()}
+
+
+def test_topos_das_buscas_num_caso_construido(ctx):
+    knn, pesos = ctx.indice_rotulado({"Q0002", "Q0003"}, com_corpus=True)
+    vizinhos = knn.buscar(ctx.vetor("Q0001"), 15, excluir=frozenset({"Q0001"}))
+    # Q0001 (furto 1, roubo 0,5): cosseno, dicionário (art. 155 + CP) e vizinhos apontam Furto; o BM25 só acha a
+    # palavra "Lei", que está no caminho do duplicado Penal > Lei Maria da Penha
+    assert topos_das_buscas("Q0001", ctx, vizinhos, pesos) == {
+        "bm25": MARIA_DA_PENHA_DUP, "cos": FURTO, "dic": FURTO, "knn": FURTO,
+    }
+    # Q0003 (roubo): ela mesma não é vizinha; os vizinhos de Furto (corpus × 0,5 + folha + exemplo) somam mais
+    vizinhos = knn.buscar(ctx.vetor("Q0003"), 15, excluir=frozenset({"Q0003"}))
+    assert topos_das_buscas("Q0003", ctx, vizinhos, pesos) == {"bm25": ROUBO, "cos": ROUBO, "dic": None,
+                                                               "knn": FURTO}
+
+
+def test_votos_e_votos_ramo_por_par(ctx):
+    treino = {"Q0002", "Q0003"}
+    knn, pesos = ctx.indice_rotulado(treino, com_corpus=True)
+    q0001 = votos_por_tema(tabela_pares(["Q0001"], {"Q0001": CANDIDATOS_Q0001}, ctx, knn, pesos, treino), "Q0001")
+    # (bm25, cos, dic, knn, votos, votos_ramo): três buscas no Furto; as três no ramo do patrimônio
+    assert q0001 == {
+        FURTO: (0, 1, 1, 1, 3, 3),
+        ROUBO: (0, 0, 0, 0, 0, 3),
+        PATRIMONIO: (0, 0, 0, 0, 0, 3),
+        ESTELIONATO: (0, 0, 0, 0, 0, 3),
+        MARIA_DA_PENHA: (0, 0, 0, 0, 0, 0),  # o top-1 do BM25 é o duplicado, que é outro ramo
+    }
+    candidatos = {"Q0003": [Candidato(ROUBO, {"bm25"}, 1.0), Candidato(FURTO, {"knn"}, 1.0),
+                            Candidato(DROGAS, {"bm25"}, 0.1)]}
+    q0003 = votos_por_tema(tabela_pares(["Q0003"], candidatos, ctx, knn, pesos, treino), "Q0003")
+    assert q0003 == {ROUBO: (1, 1, 0, 0, 2, 3), FURTO: (0, 0, 0, 1, 1, 3), DROGAS: (0, 0, 0, 0, 0, 0)}
+
+
+def test_topo_knn_soma_similaridade_ponderada_e_ignora_fora():
+    publicaveis = {FURTO, ROUBO}
+    vizinhos = [("C1", FURTO, 0.9), ("Q1", ROUBO, 0.8), ("S1", None, 0.99), ("S2", FURTO, 0.2),
+                ("S3", ROUBO, -0.5), ("S4", 5062, 0.99)]  # 5062 é raiz: não publicável
+    # Furto: 0,9 × 0,5 (corpus) + 0,2 = 0,65; Roubo: 0,8 + 0 (negativo conta zero) = 0,8
+    assert topo_knn(vizinhos, {"C1": 0.5}, publicaveis) == ROUBO
+    assert topo_knn(vizinhos, {}, publicaveis) == FURTO  # sem o peso do corpus, Furto soma 1,1
+    assert topo_knn([("S1", None, 0.9)], {}, publicaveis) is None
+    assert topo_knn([("A", ROUBO, 0.5), ("B", FURTO, 0.5)], {}, publicaveis) == FURTO  # empate: menor id
+
+
+def test_votos_do_tema_sem_busca_nenhuma(arvore):
+    vazio = {"bm25": None, "cos": None, "dic": None, "knn": None}
+    assert votos_do_tema(FURTO, vazio, arvore) == {"voto_bm25": 0, "voto_cos": 0, "voto_dic": 0, "voto_knn": 0,
+                                                    "votos": 0, "votos_ramo": 0}
+    todos_no_pai = dict.fromkeys(vazio, PATRIMONIO)
+    assert votos_do_tema(PATRIMONIO, todos_no_pai, arvore)["votos"] == 4
+    assert votos_do_tema(ROUBO, todos_no_pai, arvore)["votos_ramo"] == 4
+    assert votos_do_tema(ROUBO, todos_no_pai, arvore)["votos"] == 0

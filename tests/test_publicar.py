@@ -20,7 +20,7 @@ IDS = ["Q0001", "Q0002", "Q0003", "Q0004"]
 DECISOES = [
     Decisao("Q0001", "publicar", ROUBO, [DROGAS, FURTO], 0.9712, "", 2),
     Decisao("Q0002", "publicar", PATRIMONIO, [], 0.8, "", 3),
-    Decisao("Q0003", "revisar", FURTO, [], 0.4, "probabilidade 0,40 abaixo do limiar 0,80", 4),
+    Decisao("Q0003", "revisar", FURTO, [], 0.4, "confiança 0,40 abaixo do limiar 0,80", 4),
     Decisao("Q0004", "fora", None, [], 0.93, "fora da taxonomia (p_fora 0,93): termos militar, cpm", 1),
 ]
 
@@ -43,12 +43,12 @@ def test_formato_do_leia_me(publicacao):
     assert linhas[0] == "id,decisao,tema_central_id,extras_ids,confianca,motivo"
     assert linhas[1] == f"Q0001,publicar,{ROUBO},{DROGAS};{FURTO},0.97,"
     assert linhas[2] == f"Q0002,publicar,{PATRIMONIO},,0.80,"
-    assert linhas[3] == f'Q0003,revisar,{FURTO},,0.40,"probabilidade 0,40 abaixo do limiar 0,80"'
+    assert linhas[3] == f'Q0003,revisar,{FURTO},,0.40,"confiança 0,40 abaixo do limiar 0,80"'
     assert linhas[4].startswith("Q0004,fora,,,0.93,")
     assert len(linhas) == 1 + len(DECISOES)
     df = ler_publicacao(publicacao)
     assert list(df.columns) == COLUNAS_PUBLICACAO
-    assert df.loc[2, "motivo"] == "probabilidade 0,40 abaixo do limiar 0,80"
+    assert df.loc[2, "motivo"] == "confiança 0,40 abaixo do limiar 0,80"
 
 
 def test_publicacao_valida_nao_tem_erro(publicacao, arvore):
@@ -130,8 +130,11 @@ def test_previsao_explica_como_chegou_nos_numeros(tmp_path):
     explicacao = texto.split("\n\n", 1)[1]
     for trecho in ("folha-verdade", "15 avaliações", "degrau 1", "Jeffreys", "559", "±0,01", "0,51",
                    "149 certas em 153 publicadas", "corpus fora", "otimista", "sintéticos",
-                   "mesma folha", "300 questões de concursos recentes"):
+                   "mesma folha", "300 questões de concursos recentes", "n efetivo 51,00 publicadas",
+                   "divididas pelas 3 repetições", "confiança (0,50 a 0,99", "validação interna de 5 dobras"):
         assert trecho in explicacao, trecho
+    com_n = escrever_previsao(tmp_path / "outra.txt", {**RESUMO, "n_efetivo": 50.5, "n_dobras_confianca": 3})
+    assert "n efetivo 50,50 publicadas" in com_n and "validação interna de 3 dobras" in com_n
 
 
 def test_previsao_sem_comparacao_diz_a_fonte(tmp_path):

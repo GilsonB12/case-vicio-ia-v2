@@ -151,6 +151,10 @@ def texto_previsao(resumo: dict) -> str:
     lim = resumo["limiares"]
     publicadas_dobras = resumo.get("publicadas_dobras")
     acertos_dobras = resumo.get("acertos_dobras")
+    n_internas = resumo.get("n_dobras_confianca", 5)
+    n_efetivo = resumo.get("n_efetivo")
+    if n_efetivo is None and publicadas_dobras is not None:
+        n_efetivo = publicadas_dobras / max(int(repeticoes), 1)
     partes = [
         "Como chegamos nesses números",
         "",
@@ -160,13 +164,24 @@ def texto_previsao(resumo: dict) -> str:
         "",
         f"Validação cruzada: {n_dobras} dobras estratificadas por (fora da taxonomia, disciplina do tema central), "
         f"repetidas {repeticoes} vezes com sementes diferentes, {total} avaliações ao todo. Em cada dobra, o índice "
-        "de vizinhos rotulados, o modelo de pares e o detector de fora são refeitos só com as questões de treino da "
-        "dobra (mais os exemplos sintéticos, e o corpus quando ligado); as questões de teste da dobra não entram em "
-        "nada do treino.",
+        "de vizinhos rotulados, o modelo de pares, o detector de fora e o modelo de confiança são refeitos só com as "
+        "questões de treino da dobra (mais os exemplos sintéticos, e o corpus quando ligado); as questões de teste "
+        "da dobra não entram em nada do treino.",
         "",
-        f"Limiares: a grade cruza o limiar de publicar (0,30 a 0,95, de 0,01 em 0,01) com o limiar de fora (0,3 a "
-        "0,9). Para cada par, as publicadas e os acertos das dobras são somados e a precisão é a média de Jeffreys "
-        "(acertos + 0,5) / (publicadas + 1), com intervalo de 95% por 10.000 sorteios da Beta. A escolha segue a "
+        "Confiança: um segundo modelo (regressão logística) dá a chance de publicar certo em duas opções por "
+        "questão, o tema mais provável do modelo de pares e o ramo de nível 1 dele, a partir da probabilidade, da "
+        "concordância entre as quatro buscas independentes (BM25, cosseno com o tema, dicionário de leis e vizinhos "
+        "rotulados), do nível do tema, da similaridade com a folha de treino e da presença de lei citada. Ele "
+        f"aprende com previsões fora da amostra: dentro de cada treino, uma validação interna de {n_internas} dobras "
+        "refaz o "
+        "modelo de pares sem as questões que vai prever. Publica-se a opção de maior confiança quando ela passa do "
+        "limiar; é essa confiança que vai na coluna confianca do publicacao.csv.",
+        "",
+        f"Limiares: a grade cruza o limiar da confiança (0,50 a 0,99, de 0,01 em 0,01) com o limiar de fora (0,3 a "
+        "0,9). Para cada par, as publicadas e os acertos das dobras são somados; como cada questão aparece uma vez "
+        f"por repetição, as contagens são divididas pelas {repeticoes} repetições (n efetivo) antes da média de "
+        "Jeffreys (acertos + 0,5) / (publicadas + 1) e do intervalo de 95% por 10.000 sorteios da Beta. A escolha "
+        "segue a "
         f"escada: {_DEGRAUS.get(int(resumo['degrau']), 'degrau ' + str(resumo['degrau']))}. Ficou no "
         f"degrau {resumo['degrau']}: publicar a partir de {_num(lim['publicar'])}, fora a partir de "
         f"{_num(lim['fora'])}, extras a partir de {_num(lim.get('extra', 0.15))}.",
@@ -174,8 +189,9 @@ def texto_previsao(resumo: dict) -> str:
     ]
     contagem_dobras = ""
     if publicadas_dobras is not None and acertos_dobras is not None:
+        efetivo = f"; n efetivo {_num(n_efetivo)} publicadas" if n_efetivo is not None else ""
         contagem_dobras = (f" ({acertos_dobras} certas em {publicadas_dobras} publicadas, somando as {n_teste} "
-                           "questões de teste das dobras)")
+                           f"questões de teste das dobras{efetivo})")
     partes += [
         f"Precisão prevista: a precisão agrupada das dobras no par de limiares escolhido{contagem_dobras}, "
         f"{_num(resumo['precisao'])}, com intervalo {_faixa(resumo['precisao_intervalo']).replace('.', ',')}. "
@@ -209,8 +225,8 @@ def texto_previsao(resumo: dict) -> str:
         "O que pode deixar a previsão otimista:",
         f"- são só {n_rotulos} rótulos; o intervalo da precisão é largo e cada erro pesa;",
         "- o limiar foi escolhido na mesma folha que mede a precisão, o que favorece o par escolhido;",
-        f"- as {repeticoes} repetições reaproveitam as mesmas {n_rotulos} questões, então o intervalo trata como "
-        "independentes avaliações que não são;",
+        f"- as {repeticoes} repetições reaproveitam as mesmas {n_rotulos} questões; o intervalo usa o n efetivo "
+        "(contagens divididas pelas repetições), mas as dobras ainda compartilham questões de treino;",
         "- os exemplos sintéticos entram como vizinhos rotulados e no treino; se eles forem mais fáceis que as "
         "questões reais, o modelo parece melhor do que é.",
     ]
