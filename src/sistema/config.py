@@ -1,4 +1,4 @@
-"""Caminhos do projeto e leitura de variáveis de ambiente."""
+"""Caminhos do projeto, semente e leitura de variáveis de ambiente."""
 from __future__ import annotations
 
 import os
@@ -15,34 +15,52 @@ SEMENTE = 42
 
 @dataclass(frozen=True)
 class Caminhos:
+    """Anexos do case em anexos/, artefatos versionados em dados/, entregáveis na raiz."""
+
+    raiz: Path
     anexos: Path
     questoes: Path
     temas: Path
-    corpus: Path
+    folha: Path
+    dados: Path
+    temas_enriquecidos: Path
+    exemplos: Path
+    dicionario_leis: Path
+    dicionario_ajustes: Path
+    termos_fora: Path
+    corpus_v1: Path
+    embeddings: Path
     intermediarios: Path
-    cache: Path
     custos: Path
-    ancora_planilha: Path
-    ancora_manual: Path
     publicacao: Path
     previsao: Path
-    prompts: Path
 
 
-CAMINHOS = Caminhos(
-    anexos=RAIZ / "anexos",
-    questoes=RAIZ / "anexos" / "questoes.jsonl",
-    temas=RAIZ / "anexos" / "temas.csv",
-    corpus=RAIZ / "data" / "corpus_referencia.jsonl",
-    intermediarios=RAIZ / "data" / "intermediarios",
-    cache=RAIZ / "data" / "cache",
-    custos=RAIZ / "data" / "custos",
-    ancora_planilha=RAIZ / "data" / "ancora_para_rotular.csv",
-    ancora_manual=RAIZ / "data" / "ancora_manual.csv",
-    publicacao=RAIZ / "publicacao.csv",
-    previsao=RAIZ / "previsao.txt",
-    prompts=RAIZ / "src" / "classificador" / "prompts",
-)
+def _caminhos(raiz: Path) -> Caminhos:
+    anexos = raiz / "anexos"
+    dados = raiz / "dados"
+    return Caminhos(
+        raiz=raiz,
+        anexos=anexos,
+        questoes=anexos / "questoes.jsonl",
+        temas=anexos / "temas.csv",
+        folha=anexos / "folha_verdade.csv",
+        dados=dados,
+        temas_enriquecidos=dados / "temas_enriquecidos.jsonl",
+        exemplos=dados / "exemplos.jsonl",
+        dicionario_leis=dados / "dicionario_leis.json",
+        dicionario_ajustes=dados / "dicionario_leis_ajustes.json",
+        termos_fora=dados / "termos_fora.json",
+        corpus_v1=dados / "fontes" / "corpus_v1.jsonl",
+        embeddings=dados / "embeddings",
+        intermediarios=dados / "intermediarios",
+        custos=dados / "custos",
+        publicacao=raiz / "publicacao.csv",
+        previsao=raiz / "previsao.txt",
+    )
+
+
+CAMINHOS = _caminhos(RAIZ)
 
 
 def ler_env(nome: str, padrao: str | None = None) -> str | None:
@@ -54,4 +72,4 @@ def ler_env(nome: str, padrao: str | None = None) -> str | None:
 
 
 class ChaveAusenteError(RuntimeError):
-    """Chave de API ausente e sem cache para atender a chamada."""
+    """Chave de API ausente para uma etapa que precisa chamar o provedor."""

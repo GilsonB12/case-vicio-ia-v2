@@ -1,129 +1,179 @@
-"""Embeddings da OpenAI via LangChain, com cache em disco por texto."""
+"""Cache de embeddings em disco: o sistema só lê; `sistema embeddings` é a única etapa que chama a API.
+
+Cada texto vira um arquivo `dados/embeddings/<modelo>/<sha256 do texto>.json` com a lista do vetor. A leitura
+(`vetor`, `matriz`) nunca importa cliente de modelo nem toca na rede: texto fora do cache levanta
+`EmbeddingAusenteError` com a lista do que falta. `gerar` chama a OpenAI só para os ausentes, em lotes, e registra
+cada lote no livro-razão de custos.
+"""
 from __future__ import annotations
 
 import hashlib
 import json
 import logging
+import os
 import time
-from functools import lru_cache
 from pathlib import Path
+from typing import Iterable
 
-import tiktoken
-from langchain_core.embeddings import Embeddings
+import numpy as np
 
-from classificador import custos
-from classificador.config import CAMINHOS, ChaveAusenteError, ler_env
+from sistema import custos
+from sistema.config import CAMINHOS, ChaveAusenteError, ler_env
 
 registro = logging.getLogger(__name__)
 
 MODELO_PADRAO = "text-embedding-3-large"
-# Tokenizador dos modelos text-embedding-3.
-CODIFICACAO = "cl100k_base"
+TAMANHO_LOTE = 100
+LIMITE_LISTA = 10
+TAMANHO_AMOSTRA = 80
 
 
-@lru_cache(maxsize=1)
-def _codificador() -> tiktoken.Encoding:
-    return tiktoken.get_encoding(CODIFICACAO)
+def _amostra(texto: str) -> str:
+    plano = " ".join(texto.split())
+    return plano if len(plano) <= TAMANHO_AMOSTRA else plano[: TAMANHO_AMOSTRA - 1] + "…"
 
 
-def contar_tokens(textos: list[str]) -> int | None:
-    """Tokens de entrada de um lote; None se o tokenizador não carregar (o tiktoken baixa o arquivo na primeira vez)."""
-    try:
-        codificador = _codificador()
-    except Exception as erro:
-        registro.warning("tokenizador %s indisponível (%s); lote registrado com uso desconhecido", CODIFICACAO, erro)
-        return None
-    return sum(len(codificador.encode(texto, disallowed_special=())) for texto in textos)
+class EmbeddingAusenteError(RuntimeError):
+    """Textos sem embedding no cache; `textos_faltando` traz todos, a mensagem mostra os primeiros."""
+
+    def __init__(self, textos_faltando: Iterable[str]) -> None:
+        self.textos_faltando = list(textos_faltando)
+        total = len(self.textos_faltando)
+        linhas = [f"{total} texto(s) sem embedding no cache; gere com `uv run sistema embeddings` "
+                  "(a única etapa que chama a API)."]
+        linhas += [f"  - {_amostra(texto)}" for texto in self.textos_faltando[:LIMITE_LISTA]]
+        if total > LIMITE_LISTA:
+            linhas.append(f"  … e mais {total - LIMITE_LISTA}")
+        super().__init__("\n".join(linhas))
 
 
-class EmbeddingsComCache(Embeddings):
-    """Lê do cache o que já foi calculado; chama a base só para o que falta."""
-
-    def __init__(
-        self, base: Embeddings | None, modelo: str, pasta_cache: Path, livro: custos.LivroRazao | None = None
-    ) -> None:
-        self.base = base
+class CacheEmbeddings:
+    def __init__(self, pasta: Path = CAMINHOS.embeddings, modelo: str = MODELO_PADRAO) -> None:
         self.modelo = modelo
-        self.pasta = pasta_cache / "embeddings" / modelo
-        self.pasta.mkdir(parents=True, exist_ok=True)
-        self.livro = livro if livro is not None else custos.LIVRO
-        self.chamadas_base = 0
-        self.acertos_cache = 0
+        self.pasta = Path(pasta) / modelo
+        self._memoria: dict[str, np.ndarray] = {}
 
-    def _arquivo(self, texto: str) -> Path:
-        chave = hashlib.sha256(f"{self.modelo}\n{texto}".encode("utf-8")).hexdigest()
-        return self.pasta / f"{chave}.json"
+    def arquivo(self, texto: str) -> Path:
+        return self.pasta / f"{hashlib.sha256(texto.encode('utf-8')).hexdigest()}.json"
 
-    def _ler(self, texto: str) -> list[float] | None:
-        arquivo = self._arquivo(texto)
-        if not arquivo.exists():
-            return None
+    # --- leitura (sem rede) ------------------------------------------------------------------------------
+
+    def _ler(self, texto: str) -> np.ndarray | None:
+        """Vetor do cache, ou None se o arquivo não existe ou não tem um vetor válido."""
+        if texto in self._memoria:
+            return self._memoria[texto]
         try:
-            vetor = json.loads(arquivo.read_text(encoding="utf-8"))
+            bruto = json.loads(self.arquivo(texto).read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return None
         except (json.JSONDecodeError, UnicodeDecodeError):
-            arquivo.unlink()
+            registro.warning("arquivo de cache inválido para %r; conta como ausente", _amostra(texto))
             return None
-        if not isinstance(vetor, list) or not vetor or not all(isinstance(x, (int, float)) for x in vetor):
-            arquivo.unlink()
+        if not isinstance(bruto, list) or not bruto or not all(isinstance(x, (int, float)) for x in bruto):
+            registro.warning("arquivo de cache sem vetor para %r; conta como ausente", _amostra(texto))
             return None
-        return [float(x) for x in vetor]
+        vetor = np.asarray(bruto, dtype=np.float32)
+        self._memoria[texto] = vetor
+        return vetor
 
-    def _gravar(self, texto: str, vetor: list[float]) -> None:
-        self._arquivo(texto).write_text(json.dumps(vetor), encoding="utf-8")
+    def faltando(self, textos: Iterable[str]) -> list[str]:
+        """Textos sem embedding no cache, sem repetição, na ordem em que aparecem."""
+        return [texto for texto in dict.fromkeys(textos) if self._ler(texto) is None]
 
-    def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        resultado: list[list[float] | None] = [self._ler(t) for t in texts]
-        self.acertos_cache += sum(1 for v in resultado if v is not None)
-        faltantes = [i for i, v in enumerate(resultado) if v is None]
-        if faltantes:
-            if self.base is None:
+    def matriz(self, textos: Iterable[str]) -> np.ndarray:
+        """Uma linha por texto, na ordem dada; levanta EmbeddingAusenteError se algum não está no cache."""
+        textos = list(textos)
+        vetores = [self._ler(texto) for texto in textos]
+        ausentes = [texto for texto, vetor in zip(textos, vetores) if vetor is None]
+        if ausentes:
+            raise EmbeddingAusenteError(dict.fromkeys(ausentes))
+        if not vetores:
+            return np.zeros((0, 0), dtype=np.float32)
+        return np.vstack(vetores)
+
+    def vetor(self, texto: str) -> np.ndarray:
+        return self.matriz([texto])[0]
+
+    # --- geração (API) -----------------------------------------------------------------------------------
+
+    def gerar(self, textos: Iterable[str], cliente=None, livro: custos.LivroRazao | None = None) -> int:
+        """Gera e grava no cache os embeddings que faltam; devolve quantos foram gerados.
+
+        Sem `cliente`, cria o da OpenAI com OPENAI_API_KEY (ChaveAusenteError sem ela). Nada a gerar não pede
+        chave nem chama nada. Cada lote de até TAMANHO_LOTE textos é uma chamada e uma linha no livro-razão.
+        """
+        ausentes = self.faltando(textos)
+        if not ausentes:
+            return 0
+        if cliente is None:
+            chave = ler_env("OPENAI_API_KEY")
+            if not chave:
                 raise ChaveAusenteError(
-                    f"{len(faltantes)} texto(s) sem embedding em cache e OPENAI_API_KEY ausente. "
-                    "Defina a chave no .env ou use o cache commitado."
+                    f"OPENAI_API_KEY ausente: defina a chave no .env para gerar os {len(ausentes)} embedding(s) "
+                    "que faltam no cache"
                 )
-            lote = [texts[i] for i in faltantes]
-            inicio = time.perf_counter()
-            try:
-                novos = self.base.embed_documents(lote)
-            except Exception as erro:
-                self._anotar(lote, inicio, erro)
-                raise
-            self._anotar(lote, inicio)
-            self.chamadas_base += len(faltantes)
-            if len(novos) != len(faltantes):
-                raise RuntimeError(
-                    f"a base de embeddings devolveu {len(novos)} vetor(es) para {len(faltantes)} texto(s); "
-                    "nada foi gravado no cache"
-                )
-            for indice, vetor in zip(faltantes, novos, strict=True):
-                vetor = [float(x) for x in vetor]
-                self._gravar(texts[indice], vetor)
-                resultado[indice] = vetor
-        return [v for v in resultado if v is not None]
+            from openai import OpenAI
 
-    def _anotar(self, lote: list[str], inicio: float, erro: BaseException | None = None) -> None:
-        """Uma linha no livro-razão para o lote que foi ao provedor; acerto de cache não gera linha."""
-        tokens = None if erro is not None else contar_tokens(lote)
-        uso = None if tokens is None else {
-            "tokens_entrada": tokens, "tokens_saida": 0, "tokens_raciocinio": 0,
-            "tokens_cache_leitura": 0, "tokens_cache_escrita": 0,
-        }
-        self.livro.registrar(
-            etapa=custos.contexto_atual().etapa or "embeddings", provedor="openai", modelo=self.modelo,
-            origem="api", tentativa=1, n_textos=len(lote), uso=uso,
-            latencia_ms=round((time.perf_counter() - inicio) * 1000, 1), sucesso=erro is None,
-            erro=None if erro is None else custos.descrever_erro(erro),
+            cliente = OpenAI(api_key=chave)
+        livro = livro if livro is not None else custos.LIVRO
+        self.pasta.mkdir(parents=True, exist_ok=True)
+        for inicio in range(0, len(ausentes), TAMANHO_LOTE):
+            lote = ausentes[inicio:inicio + TAMANHO_LOTE]
+            self._gerar_lote(lote, cliente, livro)
+            registro.info("embeddings: %d de %d gerados", inicio + len(lote), len(ausentes))
+        return len(ausentes)
+
+    def _gerar_lote(self, lote: list[str], cliente, livro: custos.LivroRazao) -> None:
+        comeco = time.perf_counter()
+        try:
+            resposta = cliente.embeddings.create(model=self.modelo, input=lote)
+        except Exception as erro:
+            self._anotar(livro, lote, comeco, None, custos.descrever_erro(erro))
+            raise
+        tokens = getattr(getattr(resposta, "usage", None), "total_tokens", None)
+        uso = None if tokens is None else {"tokens_entrada": int(tokens), "tokens_saida": 0}
+        itens = list(resposta.data)
+        if len(itens) != len(lote):
+            mensagem = (f"a API devolveu {len(itens)} vetor(es) para {len(lote)} texto(s); "
+                        "nada deste lote foi gravado no cache")
+            self._anotar(livro, lote, comeco, uso, mensagem)
+            raise RuntimeError(mensagem)
+        self._anotar(livro, lote, comeco, uso)
+        # A API devolve `index` com a posição de cada texto no lote; sem ele, vale a ordem da resposta.
+        ordenados = sorted(enumerate(itens), key=lambda par: getattr(par[1], "index", par[0]))
+        for texto, (_, item) in zip(lote, ordenados):
+            self._gravar(texto, item.embedding)
+
+    def _anotar(self, livro, lote: list[str], comeco: float, uso: dict | None, erro: str | None = None) -> None:
+        livro.registrar(
+            etapa="embeddings", provedor="openai", modelo=self.modelo, n_textos=len(lote), uso=uso,
+            latencia_ms=round((time.perf_counter() - comeco) * 1000, 1), sucesso=erro is None, erro=erro,
         )
 
-    def embed_query(self, text: str) -> list[float]:
-        return self.embed_documents([text])[0]
+    def _gravar(self, texto: str, vetor) -> None:
+        valores = [float(x) for x in vetor]
+        if not valores:
+            raise RuntimeError(f"vetor vazio para {_amostra(texto)!r}")
+        arquivo = self.arquivo(texto)
+        temporario = arquivo.with_name(arquivo.name + ".tmp")
+        temporario.write_text(json.dumps(valores), encoding="utf-8")
+        os.replace(temporario, arquivo)
+        self._memoria[texto] = np.asarray(valores, dtype=np.float32)
 
 
-def criar_embeddings(pasta_cache: Path = CAMINHOS.cache) -> EmbeddingsComCache:
-    modelo = ler_env("MODELO_EMBEDDINGS", MODELO_PADRAO) or MODELO_PADRAO
-    base: Embeddings | None = None
-    if ler_env("OPENAI_API_KEY"):
-        from langchain_openai import OpenAIEmbeddings
+def textos_do_sistema() -> list[str]:
+    """Todos os textos que o sistema lê do cache, sem repetição.
 
-        base = OpenAIEmbeddings(model=modelo)
-    return EmbeddingsComCache(base, modelo, pasta_cache)
+    Questões, texto dos 371 temas publicáveis (com os enriquecidos disponíveis), exemplos sintéticos e corpus v1
+    (o corpus entra sempre, para a comparação de fontes poder rodar com e sem ele).
+    """
+    from sistema.arvore import ArvoreTemas
+    from sistema.dados import carregar_corpus_v1, carregar_exemplos, carregar_questoes, carregar_temas_enriquecidos
+
+    arvore = ArvoreTemas.carregar()
+    enriquecidos = carregar_temas_enriquecidos()
+    textos = list(carregar_questoes()["texto"])
+    textos += [arvore.texto_tema(tema_id, enriquecidos) for tema_id in arvore.candidatos_possiveis()]
+    textos += [exemplo["texto"] for exemplo in carregar_exemplos()]
+    textos += [item["texto"] for item in carregar_corpus_v1()]
+    return list(dict.fromkeys(textos))

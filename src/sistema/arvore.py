@@ -1,15 +1,17 @@
-"""Árvore de temas: navegação, canonicalização de duplicatas e régua de acerto."""
+"""Árvore de temas: navegação, relação duplicado → original, texto do tema e régua de acerto."""
 from __future__ import annotations
 
 import re
 import unicodedata
 from collections import defaultdict
+from typing import Any, Mapping
 
 import pandas as pd
 
-from classificador.dados import carregar_temas
+from sistema.dados import carregar_temas
 
-EXCECOES_CANONICAS: dict[int, int] = {
+# Duplicados cujo título não casa com o do original depois de normalizado.
+EXCECOES_ORIGINAIS: dict[int, int] = {
     6735: 5543,  # "Provas em Espécie" -> "Provas em Espécies"
     6736: 5560,  # "Recursos (Parte 03) - Espécies" -> "Recursos em Espécies"
     6722: 4696,  # "Estatuto do Idoso - Crimes" -> "Estaturo de Idoso - Crimes"
@@ -18,6 +20,7 @@ EXCECOES_CANONICAS: dict[int, int] = {
 _PARTE = re.compile(r"\(\s*parte\s*\d+\s*\)")
 _CONTAGEM = re.compile(r"\s*\d+\s+quest(?:ões|oes)(?: no source)?\.?", re.IGNORECASE)
 _PATH = re.compile(r"\s*Path:.*$", re.DOTALL)
+_PREFIXO_ARTIGO = re.compile(r"^\s*art(?:igo)?s?\.?\s*", re.IGNORECASE)
 
 
 def normalizar_titulo(titulo: str) -> str:
@@ -27,6 +30,38 @@ def normalizar_titulo(titulo: str) -> str:
     return re.sub(r"\s+", " ", sem_parte).strip()
 
 
+def _texto(item: Any) -> str:
+    return str(item or "").strip()
+
+
+def _formatar_lei(item: Any) -> str:
+    """`{"numero": "11.340/2006", "nome": "Lei Maria da Penha"}` vira "Lei Maria da Penha (11.340/2006)"."""
+    if not isinstance(item, Mapping):
+        return _texto(item)
+    numero, nome = _texto(item.get("numero")), _texto(item.get("nome"))
+    return f"{nome} ({numero})" if nome and numero else nome or numero
+
+
+def _formatar_artigo(item: Any) -> str:
+    """`{"diploma": "CP", "artigo": "157"}` vira "CP, art. 157"."""
+    if not isinstance(item, Mapping):
+        return _texto(item)
+    diploma = _texto(item.get("diploma"))
+    artigo = _PREFIXO_ARTIGO.sub("", _texto(item.get("artigo")))
+    if not artigo:
+        return diploma
+    return f"{diploma}, art. {artigo}" if diploma else f"art. {artigo}"
+
+
+# Partes do tema enriquecido que entram no texto do tema, na ordem, depois do caminho e do resumo.
+_PARTES_ENRIQUECIDAS = (
+    ("Leis", "leis", _formatar_lei),
+    ("Artigos", "artigos", _formatar_artigo),
+    ("Termos", "termos", _texto),
+    ("Sinônimos", "sinonimos", _texto),
+)
+
+
 class ArvoreTemas:
     def __init__(self, temas: pd.DataFrame) -> None:
         self._df = temas.set_index("tema_id", drop=False)
@@ -34,7 +69,7 @@ class ArvoreTemas:
         for tema_id, pai in zip(self._df["tema_id"], self._df["parent_id"]):
             if pd.notna(pai):
                 self._filhos[int(pai)].append(int(tema_id))
-        self._canonicos = self._montar_canonicos()
+        self._originais = self._montar_originais()
 
     @classmethod
     def carregar(cls) -> "ArvoreTemas":
@@ -46,8 +81,8 @@ class ArvoreTemas:
         except KeyError as erro:
             raise KeyError(f"tema {tema_id} não existe") from erro
 
-    def _montar_canonicos(self) -> dict[int, int]:
-        """Temas sem descrição são duplicatas; casam por título normalizado ou pela tabela de exceções."""
+    def _montar_originais(self) -> dict[int, int]:
+        """Temas sem descrição são duplicados; casam com o original pelo título normalizado ou pela tabela de exceções."""
         por_titulo: dict[str, list[int]] = defaultdict(list)
         for tema_id, titulo, descricao in zip(self._df["tema_id"], self._df["titulo"], self._df["descricao"]):
             if descricao.strip():
@@ -59,14 +94,16 @@ class ArvoreTemas:
             tema_id = int(tema_id)
             if descricao.strip() or nivel == 0:
                 continue
-            if tema_id in EXCECOES_CANONICAS:
-                mapa[tema_id] = EXCECOES_CANONICAS[tema_id]
+            if tema_id in EXCECOES_ORIGINAIS:
+                mapa[tema_id] = EXCECOES_ORIGINAIS[tema_id]
                 continue
             candidatos = por_titulo.get(normalizar_titulo(titulo), [])
             if len(candidatos) != 1:
-                raise ValueError(f"tema duplicado {tema_id} '{titulo}' sem canônico único: {candidatos}")
+                raise ValueError(f"tema duplicado {tema_id} '{titulo}' sem original único: {candidatos}")
             mapa[tema_id] = candidatos[0]
         return mapa
+
+    # --- atributos ---------------------------------------------------------------------------------------
 
     def existe(self, tema_id: int) -> bool:
         return int(tema_id) in self._df.index
@@ -80,6 +117,10 @@ class ArvoreTemas:
     def descricao(self, tema_id: int) -> str:
         return str(self._linha(tema_id)["descricao"])
 
+    def descricao_limpa(self, tema_id: int) -> str:
+        """Descrição original sem a frase de contagem de questões e sem o 'Path:' que repete o caminho."""
+        return _PATH.sub("", _CONTAGEM.sub("", self.descricao(tema_id))).strip()
+
     def nivel(self, tema_id: int) -> int:
         return int(self._linha(tema_id)["nivel"])
 
@@ -88,6 +129,8 @@ class ArvoreTemas:
 
     def ativo(self, tema_id: int) -> bool:
         return bool(self._linha(tema_id)["ativo"])
+
+    # --- navegação ---------------------------------------------------------------------------------------
 
     def pai(self, tema_id: int) -> int | None:
         valor = self._linha(tema_id)["parent_id"]
@@ -120,24 +163,54 @@ class ArvoreTemas:
             return False
         return self.ancestral_nivel1(a) == self.ancestral_nivel1(b)
 
-    def eh_duplicado(self, tema_id: int) -> bool:
-        return int(tema_id) in self._canonicos
+    # --- duplicados e publicáveis ------------------------------------------------------------------------
 
-    def canonico(self, tema_id: int) -> int:
-        return self._canonicos.get(int(tema_id), int(tema_id))
+    def eh_duplicado(self, tema_id: int) -> bool:
+        return int(tema_id) in self._originais
+
+    def original_de(self, tema_id: int) -> int:
+        """O original de um duplicado (a quem ele copia o conteúdo enriquecido), ou o próprio tema."""
+        return self._originais.get(int(tema_id), int(tema_id))
 
     def duplicados(self) -> dict[int, int]:
-        return dict(self._canonicos)
+        """Duplicado → original."""
+        return dict(self._originais)
 
     def publicavel(self, tema_id: int) -> bool:
-        return self.existe(tema_id) and self.ativo(tema_id) and not self.eh_raiz(tema_id) and not self.eh_duplicado(tema_id)
+        """Ativo e fora das raízes de disciplina; os duplicados são publicáveis (a equipe os usa na folha)."""
+        return self.existe(tema_id) and self.ativo(tema_id) and not self.eh_raiz(tema_id)
 
     def candidatos_possiveis(self) -> list[int]:
         return sorted(int(t) for t in self._df["tema_id"] if self.publicavel(int(t)))
 
-    def documento(self, tema_id: int) -> str:
-        descricao = _PATH.sub("", _CONTAGEM.sub("", self.descricao(tema_id))).strip()
-        return f"{self.caminho(tema_id)}\n{descricao}" if descricao else self.caminho(tema_id)
+    # --- texto do tema -----------------------------------------------------------------------------------
+
+    def texto_tema(self, tema_id: int, enriquecidos: Mapping[int, dict]) -> str:
+        """Texto do tema para BM25 e embedding.
+
+        Com tema enriquecido: caminho, resumo, leis, artigos, termos e sinônimos. Sem ele: caminho e descrição
+        original sem a frase de contagem. O duplicado usa o conteúdo do original (o enriquecido do original, ou
+        o próprio se só ele existir) com o seu próprio caminho.
+        """
+        tema_id = int(tema_id)
+        original = self.original_de(tema_id)
+        caminho = self.caminho(tema_id)
+        enriquecido = enriquecidos.get(original) or enriquecidos.get(tema_id)
+        if not enriquecido:
+            descricao = self.descricao_limpa(original)
+            return f"{caminho}\n{descricao}" if descricao else caminho
+        partes = [caminho]
+        resumo = _texto(enriquecido.get("resumo"))
+        if resumo:
+            partes.append(resumo)
+        for rotulo, chave, formatar in _PARTES_ENRIQUECIDAS:
+            itens = [formatar(item) for item in enriquecido.get(chave) or []]
+            itens = [item for item in itens if item]
+            if itens:
+                partes.append(f"{rotulo}: {'; '.join(itens)}")
+        return "\n".join(partes)
+
+    # --- régua -------------------------------------------------------------------------------------------
 
     def acerto(self, decidido: int, verdadeiro: int) -> bool:
         """Régua da Vício: igual, pai ou filho do tema verdadeiro."""
