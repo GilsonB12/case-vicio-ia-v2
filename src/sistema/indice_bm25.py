@@ -31,20 +31,13 @@ _ORDINAIS = str.maketrans({"º": " ", "ª": " ", "°": " "})
 _PALAVRA = re.compile(r"[a-z0-9]+")
 
 
-def palavras(texto: str | None) -> list[str]:
-    """Palavras normalizadas de um texto, na ordem, com repetição e com as stopwords: minúsculas, sem acento, só
-    letras e dígitos (qualquer outro caractere, hífen inclusive, separa palavras), sem os rótulos de estrutura."""
+def tokenizar(texto: str | None) -> list[str]:
+    """Tokens normalizados de um texto, na ordem, com repetição."""
     if not texto:
         return []
     sem_rotulos = _ROTULOS.sub(" ", texto).translate(_ORDINAIS)
     sem_acento = unicodedata.normalize("NFKD", sem_rotulos.lower()).encode("ascii", "ignore").decode()
-    return _PALAVRA.findall(sem_acento)
-
-
-def tokenizar(texto: str | None) -> list[str]:
-    """Tokens normalizados de um texto, na ordem, com repetição: as `palavras` sem stopwords e sem as de um
-    caractere."""
-    return [token for token in palavras(texto) if len(token) > 1 and token not in STOPWORDS]
+    return [token for token in _PALAVRA.findall(sem_acento) if len(token) > 1 and token not in STOPWORDS]
 
 
 class IndiceBM25:

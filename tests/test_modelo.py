@@ -277,7 +277,7 @@ def _tabelas_opcoes():
         ("Q0001", DROGAS, 0, 0, 0.2),
         ("Q0002", PATRIMONIO, 2, 3, 0.7), ("Q0002", FURTO, 1, 3, 0.6),
         ("Q0003", ROUBO, 1, 2, 0.4), ("Q0003", FURTO, 1, 2, 0.3),
-    ], columns=["id", "tema_id", "votos", "votos_ramo", "termos_soma"])
+    ], columns=["id", "tema_id", "votos", "votos_ramo", "knn_folha_max"])
     return prob, pares
 
 
@@ -292,11 +292,11 @@ def test_tabela_opcoes_tema_e_ramo(arvore, ctx):
     assert set(linhas) == {("Q0001", "tema"), ("Q0001", "ramo"), ("Q0002", "tema"), ("Q0003", "tema")}
     tema = linhas[("Q0001", "tema")]
     assert (tema["tema_id"], tema["p"], tema["s"], tema["votos"], tema["votos_ramo"], tema["nivel2_opcao"],
-            tema["termos_soma"]) == (FURTO, 0.40, 0.30, 3, 4, 1, 0.81)
+            tema["knn_folha_max"]) == (FURTO, 0.40, 0.30, 3, 4, 1, 0.81)
     ramo = linhas[("Q0001", "ramo")]
-    # p_ramo do pai = 0,15 + 0,40 + 0,25; s e termos_soma continuam os do top-1; votos são os do par do pai
+    # p_ramo do pai = 0,15 + 0,40 + 0,25; s e knn_folha_max continuam os do top-1; votos são os do par do pai
     assert ramo["tema_id"] == PATRIMONIO and ramo["p"] == pytest.approx(0.80)
-    assert (ramo["s"], ramo["votos"], ramo["votos_ramo"], ramo["nivel2_opcao"], ramo["termos_soma"]) == \
+    assert (ramo["s"], ramo["votos"], ramo["votos_ramo"], ramo["nivel2_opcao"], ramo["knn_folha_max"]) == \
         (0.30, 1, 4, 0, 0.81)
     assert linhas[("Q0002", "tema")]["nivel2_opcao"] == 0  # top-1 de nível 1: sem opção de ramo
     assert linhas[("Q0003", "tema")]["tema_id"] == min(ROUBO, FURTO)  # empate no p: menor id

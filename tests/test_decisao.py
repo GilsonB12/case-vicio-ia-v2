@@ -111,7 +111,7 @@ def test_regra_4_buscas_divergem_com_no_maximo_um_voto(arvore, votos):
                       0.2, LIMIARES, arvore)
     assert decisao.decisao == REVISAR and decisao.tema_central_id == ROUBO
     assert decisao.motivo.startswith("buscas divergem")
-    assert f"{votos} de 5" in decisao.motivo and str(ROUBO) in decisao.motivo
+    assert f"{votos} de 4" in decisao.motivo and str(ROUBO) in decisao.motivo
     assert "confiança 0,50 abaixo do limiar 0,80" in decisao.motivo
 
 

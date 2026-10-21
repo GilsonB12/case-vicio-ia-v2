@@ -6,7 +6,6 @@ import pytest
 from apoio_contexto import (
     DIMENSAO,
     DISPOSICOES,
-    DROGAS,
     ESTELIONATO,
     EXTORSAO,
     FURTO,
@@ -25,9 +24,6 @@ from sistema.candidatos import (
     ORIGEM_FILHO_DO_PAI,
     ORIGEM_KNN,
     ORIGEM_PAI,
-    ORIGEM_TERMOS,
-    ORIGENS_BUSCA,
-    K_TERMOS,
     Candidato,
     buscar_vizinhos,
     gerar,
@@ -63,7 +59,7 @@ def questao(texto="", id_="QX"):
     return {"id": id_, "texto": texto}
 
 
-# --- as buscas ------------------------------------------------------------------------------------
+# --- as quatro buscas ------------------------------------------------------------------------------------
 
 
 def test_uniao_das_quatro_buscas_mais_o_pai(ctx):
@@ -194,62 +190,3 @@ def test_gerar_lote_usa_o_texto_as_chaves_e_o_vetor_do_contexto(ctx):
     # Q0001 cita o art. 155 do CP e a Lei 11.340: dicionário traz Furto e Maria da Penha
     temas = por_tema(candidatos["Q0001"])
     assert ORIGEM_DICIONARIO in temas[FURTO].origens and ORIGEM_DICIONARIO in temas[MARIA_DA_PENHA].origens
-
-
-# --- quinta busca: dicionário de termos técnicos ------------------------------------------------------------
-
-
-TERMOS = {
-    FURTO: {"tema_id": FURTO, "termos": ["repouso noturno", "coisa alheia móvel"]},
-    ROUBO: {"tema_id": ROUBO, "termos": ["grave ameaça", "coisa alheia móvel"]},
-    MARIA_DA_PENHA: {"tema_id": MARIA_DA_PENHA, "termos": ["violência doméstica"]},
-}
-
-
-def test_quinta_busca_pelos_termos_tecnicos_normalizada_pela_maior_soma(arvore):
-    ctx = montar(arvore, enriquecidos=TERMOS)
-    texto = "Subtraiu coisa alheia móvel durante o repouso noturno."
-    temas = por_tema(gerar(questao(texto), SEM_CHAVES, vetor(fora=1), ctx, VAZIO, k_bm25=0, k_emb=0, k_knn=0))
-    assert set(temas) == {FURTO, ROUBO, PATRIMONIO}
-    assert temas[FURTO].origens == temas[ROUBO].origens == {ORIGEM_TERMOS}
-    assert temas[PATRIMONIO].origens == {ORIGEM_PAI}
-    pontos = ctx.indice_termos.pontuar(texto)
-    assert temas[FURTO].por_origem[ORIGEM_TERMOS] == pytest.approx(1.0)
-    assert temas[ROUBO].por_origem[ORIGEM_TERMOS] == pytest.approx(pontos[ROUBO][0] / pontos[FURTO][0])
-    assert 0 < temas[ROUBO].por_origem[ORIGEM_TERMOS] < 1
-    assert temas[FURTO].n_buscas == 1
-    # o duplicado herda os termos do original
-    temas = por_tema(gerar(questao("violência doméstica"), SEM_CHAVES, vetor(fora=1), ctx, VAZIO,
-                           k_bm25=0, k_emb=0, k_knn=0))
-    assert set(temas) == {MARIA_DA_PENHA, MARIA_DA_PENHA_DUP}
-    # nada casado, nada trazido
-    assert gerar(questao("sem termo nenhum"), SEM_CHAVES, vetor(fora=1), ctx, VAZIO, k_bm25=0, k_emb=0, k_knn=0) == []
-
-
-def test_quinta_busca_traz_os_5_de_maior_soma(arvore):
-    seis = (DROGAS, DISPOSICOES, FURTO, ROUBO, EXTORSAO, ESTELIONATO)
-    enriquecidos = {t: {"tema_id": t, "termos": [f"expressao numero {i}"]} for i, t in enumerate(seis)}
-    ctx = montar(arvore, enriquecidos=enriquecidos)
-    texto = " ".join(f"expressao numero {i}." for i in range(6))
-    assert K_TERMOS == 5 and ORIGEM_TERMOS in ORIGENS_BUSCA and len(ORIGENS_BUSCA) == 5
-    temas = por_tema(gerar(questao(texto), SEM_CHAVES, vetor(fora=1), ctx, VAZIO, k_bm25=0, k_emb=0, k_knn=0))
-    # pesos iguais: empate fica com os menores ids, e Estelionato (o maior) fica de fora
-    assert {t for t, c in temas.items() if ORIGEM_TERMOS in c.origens} == set(seis) - {ESTELIONATO}
-    um = por_tema(gerar(questao(texto), SEM_CHAVES, vetor(fora=1), ctx, VAZIO, k_bm25=0, k_emb=0, k_knn=0,
-                        k_termos=1))
-    assert set(um) == {DROGAS}
-    assert len(gerar(questao(texto), SEM_CHAVES, vetor(fora=1), ctx, VAZIO, k_bm25=0, k_emb=0, k_knn=0,
-                     teto=2)) == 2
-
-
-def test_gerar_lote_reaproveita_os_termos_do_contexto(arvore):
-    ctx = montar(arvore, enriquecidos=TERMOS)
-    knn, pesos = ctx.indice_rotulado(ctx.ids_folha, com_corpus=True)
-    candidatos, _ = gerar_lote(["Q0001"], ctx, knn, pesos)
-    esperado = gerar({"id": "Q0001", "texto": ctx.texto("Q0001")}, ctx.chaves("Q0001"), ctx.vetor("Q0001"), ctx, knn,
-                     peso_por_id=pesos)
-    assert [(c.tema_id, c.origens, c.pontuacao) for c in candidatos["Q0001"]] ==         [(c.tema_id, c.origens, c.pontuacao) for c in esperado]
-    # Q0001: "coisa alheia móvel durante o repouso noturno" → Furto pelos termos (o BM25 não o traz)
-    furto = por_tema(candidatos["Q0001"])[FURTO]
-    assert furto.origens == {ORIGEM_DICIONARIO, ORIGEM_EMBEDDING, ORIGEM_KNN, ORIGEM_TERMOS, ORIGEM_FILHO_DO_PAI}
-    assert furto.n_buscas == 4

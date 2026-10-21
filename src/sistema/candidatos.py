@@ -1,11 +1,9 @@
-"""Candidatos por questão: união de cinco buscas, mais pai e filhos, com teto.
+"""Candidatos por questão: união de quatro buscas, mais pai e filhos, com teto.
 
 1. Dicionário: temas apontados pelas leis, artigos e súmulas da questão (`sistema.dicionario.pontuar`).
 2. BM25 do texto da questão contra os textos dos temas.
 3. Cosseno do embedding da questão com o embedding de cada tema.
 4. kNN rotulado: vizinhos entre os exemplos rotulados da rodada; cada um traz o seu tema (rótulo None é ignorado).
-5. Termos técnicos: os `K_TERMOS` temas de maior soma de pesos das expressões casadas como frase inteira
-   (`sistema.termos.IndiceTermos.pontuar`), com soma positiva.
 
 Depois entram o pai (nível 1) de todo candidato de nível 2 e os filhos de todo tema de nível 1 que veio pelo
 dicionário. Só temas publicáveis do contexto. Cada busca tem a pontuação normalizada em 0 a 1 dentro da questão
@@ -31,15 +29,13 @@ ORIGEM_DICIONARIO = "dicionario"
 ORIGEM_BM25 = "bm25"
 ORIGEM_EMBEDDING = "embedding"
 ORIGEM_KNN = "knn"
-ORIGEM_TERMOS = "termos"
 ORIGEM_PAI = "pai"
 ORIGEM_FILHO_DO_PAI = "filho_do_pai"
-ORIGENS_BUSCA = (ORIGEM_DICIONARIO, ORIGEM_BM25, ORIGEM_EMBEDDING, ORIGEM_KNN, ORIGEM_TERMOS)
+ORIGENS_BUSCA = (ORIGEM_DICIONARIO, ORIGEM_BM25, ORIGEM_EMBEDDING, ORIGEM_KNN)
 
 K_BM25 = 10
 K_EMB = 10
 K_KNN = 15
-K_TERMOS = 5
 TETO = 30
 
 Vizinho = tuple[Hashable, Any, float]  # (id, rótulo, similaridade)
@@ -54,7 +50,7 @@ class Candidato:
 
     @property
     def n_buscas(self) -> int:
-        """Quantas das cinco buscas trouxeram o tema (pai e filho do pai não contam)."""
+        """Quantas das quatro buscas trouxeram o tema (pai e filho do pai não contam)."""
         return sum(origem in self.origens for origem in ORIGENS_BUSCA)
 
 
@@ -90,12 +86,10 @@ def gerar(
     k_knn: int = K_KNN,
     teto: int = TETO,
     *,
-    k_termos: int = K_TERMOS,
     peso_por_id: Mapping[Hashable, float] | None = None,
     vizinhos: list[Vizinho] | None = None,
     pontos_bm25: np.ndarray | None = None,
     cossenos: np.ndarray | None = None,
-    pontos_termos: Mapping[int, tuple[float, int, float]] | None = None,
 ) -> list[Candidato]:
     """Candidatos da questão (`id` e `texto`), em ordem, no máximo `teto`.
 
@@ -103,7 +97,6 @@ def gerar(
     `peso_por_id` multiplica a similaridade de cada vizinho (o corpus pesa 0,5). `pontos_bm25` e `cossenos`
     (BM25 bruto e cosseno com cada tema, na ordem de `contexto.temas_ids`) reaproveitam as partes que não mudam
     entre as dobras (`Contexto.pontuacoes_bm25` e `Contexto.cossenos_temas`); sem eles, as buscas são feitas aqui.
-    `pontos_termos` (`Contexto.pontuacoes_termos`) faz o mesmo para os termos técnicos.
     """
     arvore = contexto.arvore
     publicaveis = contexto.publicaveis
@@ -118,17 +111,10 @@ def gerar(
         achados_emb = [(t, s) for t, _, s in contexto.indice_temas.buscar(vetor_questao, k_emb)]
     else:
         achados_emb = _melhores(contexto.temas_ids, cossenos, k_emb)
-    if pontos_termos is None:
-        pontos_termos = contexto.indice_termos.pontuar(questao["texto"])
-    somas_termos = sorted(
-        ((int(t), float(p[0])) for t, p in pontos_termos.items() if p[0] > 0 and int(t) in publicaveis),
-        key=lambda par: (-par[1], par[0]),
-    )
     brutos: dict[str, dict[int, float]] = {
         ORIGEM_DICIONARIO: {t: p for t, p in pontos_dicionario.items() if p > 0 and t in publicaveis},
         ORIGEM_BM25: {t: p for t, p in achados_bm25 if t in publicaveis},
         ORIGEM_EMBEDDING: {t: s for t, s in achados_emb if s > 0 and t in publicaveis},
-        ORIGEM_TERMOS: dict(somas_termos[:max(k_termos, 0)]),
     }
     if vizinhos is None:
         vizinhos = buscar_vizinhos(questao["id"], vetor_questao, indice_rotulado, k_knn)
@@ -179,12 +165,11 @@ def gerar_lote(
     k_emb: int = K_EMB,
     k_knn: int = K_KNN,
     teto: int = TETO,
-    k_termos: int = K_TERMOS,
 ) -> tuple[dict[str, list[Candidato]], dict[str, list[Vizinho]]]:
     """Candidatos e vizinhos de cada questão (ou exemplo, ou item do corpus) do contexto, por id.
 
-    Os vizinhos voltam para `caracteristicas.tabela_pares` usar sem buscar de novo. BM25, cosseno com os temas e
-    termos técnicos vêm do contexto, calculados uma vez por item: entre as dobras da validação só o kNN é refeito.
+    Os vizinhos voltam para `caracteristicas.tabela_pares` usar sem buscar de novo. BM25 e cosseno com os temas
+    vêm do contexto, calculados uma vez por item: entre as dobras da validação só o kNN é refeito.
     """
     candidatos_por_id: dict[str, list[Candidato]] = {}
     vizinhos_por_id: dict[str, list[Vizinho]] = {}
@@ -195,8 +180,7 @@ def gerar_lote(
         vizinhos_por_id[id_item] = vizinhos
         candidatos_por_id[id_item] = gerar(
             item, contexto.chaves(id_item), vetor, contexto, indice_rotulado,
-            k_bm25=k_bm25, k_emb=k_emb, k_knn=k_knn, teto=teto, k_termos=k_termos, peso_por_id=peso_por_id,
-            vizinhos=vizinhos, pontos_bm25=contexto.pontuacoes_bm25(id_item),
-            cossenos=contexto.cossenos_temas(id_item), pontos_termos=contexto.pontuacoes_termos(id_item),
+            k_bm25=k_bm25, k_emb=k_emb, k_knn=k_knn, teto=teto, peso_por_id=peso_por_id, vizinhos=vizinhos,
+            pontos_bm25=contexto.pontuacoes_bm25(id_item), cossenos=contexto.cossenos_temas(id_item),
         )
     return candidatos_por_id, vizinhos_por_id

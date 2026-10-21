@@ -76,8 +76,8 @@ def test_colunas_e_uma_linha_por_par_na_ordem_dos_candidatos(tabela_q0001):
     assert COLUNAS[:2] == ["id", "tema_id"]
     assert set(CARACTERISTICAS) == {
         "bm25", "cos_tema", "knn_max", "knn_media3", "knn_n10", "knn_folha_max", "dic_lei", "dic_art", "nivel2",
-        "pai_de_candidato", "n_buscas", "disciplina_bate", "prior", "termos_soma", "termos_n", "termos_max",
-        "voto_bm25", "voto_cos", "voto_dic", "voto_knn", "voto_termos", "votos", "votos_ramo",
+        "pai_de_candidato", "n_buscas", "disciplina_bate", "prior",
+        "voto_bm25", "voto_cos", "voto_dic", "voto_knn", "votos", "votos_ramo",
     }
     assert list(tabela["tema_id"]) == [c.tema_id for c in CANDIDATOS_Q0001]
     contagens = ("n_buscas", "dic_lei", "dic_art", "votos", "votos_ramo")
@@ -224,7 +224,7 @@ def test_com_candidatos_gerados_de_verdade(ctx):
     rebuscada = tabela_pares(["Q0001", "Q0005"], candidatos, ctx, knn, pesos, treino)
     assert tabela.equals(rebuscada)
     assert len(tabela) == sum(len(c) for c in candidatos.values())
-    assert set(tabela["n_buscas"]) <= {0, 1, 2, 3, 4, 5}
+    assert set(tabela["n_buscas"]) <= {0, 1, 2, 3, 4}
     assert DISPOSICOES in set(tabela.loc[tabela["id"] == "Q0001", "tema_id"])  # filho do pai que veio pelo dicionário
 
 
@@ -232,7 +232,7 @@ def test_com_candidatos_gerados_de_verdade(ctx):
 
 
 def votos_por_tema(tabela, id_questao):
-    colunas = ("voto_bm25", "voto_cos", "voto_dic", "voto_knn", "voto_termos", "votos", "votos_ramo")
+    colunas = ("voto_bm25", "voto_cos", "voto_dic", "voto_knn", "votos", "votos_ramo")
     return {t: tuple(int(linha[c]) for c in colunas) for t, linha in linhas_por_tema(tabela, id_questao).items()}
 
 
@@ -242,31 +242,30 @@ def test_topos_das_buscas_num_caso_construido(ctx):
     # Q0001 (furto 1, roubo 0,5): cosseno, dicionário (art. 155 + CP) e vizinhos apontam Furto; o BM25 só acha a
     # palavra "Lei", que está no caminho do duplicado Penal > Lei Maria da Penha
     assert topos_das_buscas("Q0001", ctx, vizinhos, pesos) == {
-        "bm25": MARIA_DA_PENHA_DUP, "cos": FURTO, "dic": FURTO, "knn": FURTO, "termos": None,
+        "bm25": MARIA_DA_PENHA_DUP, "cos": FURTO, "dic": FURTO, "knn": FURTO,
     }
     # Q0003 (roubo): ela mesma não é vizinha; os vizinhos de Furto (corpus × 0,5 + folha + exemplo) somam mais
     vizinhos = knn.buscar(ctx.vetor("Q0003"), 15, excluir=frozenset({"Q0003"}))
     assert topos_das_buscas("Q0003", ctx, vizinhos, pesos) == {"bm25": ROUBO, "cos": ROUBO, "dic": None,
-                                                               "knn": FURTO, "termos": None}
+                                                               "knn": FURTO}
 
 
 def test_votos_e_votos_ramo_por_par(ctx):
     treino = {"Q0002", "Q0003"}
     knn, pesos = ctx.indice_rotulado(treino, com_corpus=True)
     q0001 = votos_por_tema(tabela_pares(["Q0001"], {"Q0001": CANDIDATOS_Q0001}, ctx, knn, pesos, treino), "Q0001")
-    # (bm25, cos, dic, knn, termos, votos, votos_ramo): três buscas no Furto; as três no ramo do patrimônio; sem
-    # temas enriquecidos, a busca de termos não vota
+    # (bm25, cos, dic, knn, votos, votos_ramo): três buscas no Furto; as três no ramo do patrimônio
     assert q0001 == {
-        FURTO: (0, 1, 1, 1, 0, 3, 3),
-        ROUBO: (0, 0, 0, 0, 0, 0, 3),
-        PATRIMONIO: (0, 0, 0, 0, 0, 0, 3),
-        ESTELIONATO: (0, 0, 0, 0, 0, 0, 3),
-        MARIA_DA_PENHA: (0, 0, 0, 0, 0, 0, 0),  # o top-1 do BM25 é o duplicado, que é outro ramo
+        FURTO: (0, 1, 1, 1, 3, 3),
+        ROUBO: (0, 0, 0, 0, 0, 3),
+        PATRIMONIO: (0, 0, 0, 0, 0, 3),
+        ESTELIONATO: (0, 0, 0, 0, 0, 3),
+        MARIA_DA_PENHA: (0, 0, 0, 0, 0, 0),  # o top-1 do BM25 é o duplicado, que é outro ramo
     }
     candidatos = {"Q0003": [Candidato(ROUBO, {"bm25"}, 1.0), Candidato(FURTO, {"knn"}, 1.0),
                             Candidato(DROGAS, {"bm25"}, 0.1)]}
     q0003 = votos_por_tema(tabela_pares(["Q0003"], candidatos, ctx, knn, pesos, treino), "Q0003")
-    assert q0003 == {ROUBO: (1, 1, 0, 0, 0, 2, 3), FURTO: (0, 0, 0, 1, 0, 1, 3), DROGAS: (0, 0, 0, 0, 0, 0, 0)}
+    assert q0003 == {ROUBO: (1, 1, 0, 0, 2, 3), FURTO: (0, 0, 0, 1, 1, 3), DROGAS: (0, 0, 0, 0, 0, 0)}
 
 
 def test_topo_knn_soma_similaridade_ponderada_e_ignora_fora():
@@ -281,66 +280,10 @@ def test_topo_knn_soma_similaridade_ponderada_e_ignora_fora():
 
 
 def test_votos_do_tema_sem_busca_nenhuma(arvore):
-    vazio = {"bm25": None, "cos": None, "dic": None, "knn": None, "termos": None}
+    vazio = {"bm25": None, "cos": None, "dic": None, "knn": None}
     assert votos_do_tema(FURTO, vazio, arvore) == {"voto_bm25": 0, "voto_cos": 0, "voto_dic": 0, "voto_knn": 0,
-                                                    "voto_termos": 0, "votos": 0, "votos_ramo": 0}
+                                                    "votos": 0, "votos_ramo": 0}
     todos_no_pai = dict.fromkeys(vazio, PATRIMONIO)
-    assert votos_do_tema(PATRIMONIO, todos_no_pai, arvore)["votos"] == 5
-    assert votos_do_tema(ROUBO, todos_no_pai, arvore)["votos_ramo"] == 5
+    assert votos_do_tema(PATRIMONIO, todos_no_pai, arvore)["votos"] == 4
+    assert votos_do_tema(ROUBO, todos_no_pai, arvore)["votos_ramo"] == 4
     assert votos_do_tema(ROUBO, todos_no_pai, arvore)["votos"] == 0
-
-
-# --- termos técnicos ----------------------------------------------------------------------------------------
-
-TERMOS = {
-    FURTO: {"tema_id": FURTO, "termos": ["repouso noturno", "coisa alheia móvel"]},
-    ROUBO: {"tema_id": ROUBO, "termos": ["grave ameaça", "coisa alheia móvel"]},
-    MARIA_DA_PENHA: {"tema_id": MARIA_DA_PENHA, "termos": ["violência doméstica"]},
-}
-
-
-def test_caracteristicas_dos_termos_e_voto(arvore):
-    ctx = montar(arvore, enriquecidos=TERMOS)
-    treino = {"Q0002", "Q0003"}
-    knn, pesos = ctx.indice_rotulado(treino, com_corpus=True)
-    tabela = tabela_pares(["Q0001"], {"Q0001": CANDIDATOS_Q0001}, ctx, knn, pesos, treino)
-    linhas = linhas_por_tema(tabela)
-    # Q0001: "coisa alheia móvel durante o repouso noturno": Furto casa as duas expressões, Roubo uma
-    pontos = ctx.indice_termos.pontuar(ctx.texto("Q0001"))
-    assert set(pontos) == {FURTO, ROUBO}
-    assert linhas[FURTO]["termos_soma"] == pytest.approx(1.0)
-    assert linhas[ROUBO]["termos_soma"] == pytest.approx(pontos[ROUBO][0] / pontos[FURTO][0])
-    assert (linhas[FURTO]["termos_n"], linhas[ROUBO]["termos_n"]) == (pytest.approx(2 / 5), pytest.approx(1 / 5))
-    maximo = ctx.indice_termos.peso_maximo
-    assert linhas[FURTO]["termos_max"] == pytest.approx(pontos[FURTO][2] / maximo)
-    assert linhas[ROUBO]["termos_max"] == pytest.approx(ctx.indice_termos.peso("coisa alheia móvel") / maximo)
-    for tema_id in (PATRIMONIO, ESTELIONATO, MARIA_DA_PENHA):
-        assert (linhas[tema_id]["termos_soma"], linhas[tema_id]["termos_n"], linhas[tema_id]["termos_max"]) == (0, 0, 0)
-    # o voto dos termos vai para o Furto e soma em votos e votos_ramo (agora cinco buscas)
-    votos = votos_por_tema(tabela, "Q0001")
-    assert votos[FURTO] == (0, 1, 1, 1, 1, 4, 4)
-    assert votos[ROUBO] == votos[PATRIMONIO] == votos[ESTELIONATO] == (0, 0, 0, 0, 0, 0, 4)
-    vizinhos = knn.buscar(ctx.vetor("Q0001"), 15, excluir=frozenset({"Q0001"}))
-    assert topos_das_buscas("Q0001", ctx, vizinhos, pesos)["termos"] == FURTO
-
-
-def test_termos_soma_pela_maior_entre_os_candidatos_e_termos_n_satura_em_5(arvore):
-    # sete expressões tiradas do texto da Q0001; o Furto tem três delas, o Roubo todas
-    expressoes = ["tício subtraiu", "subtraiu coisa", "coisa alheia", "alheia móvel", "durante o repouso",
-                  "repouso noturno", "nos termos"]
-    ctx = montar(arvore, enriquecidos={FURTO: {"tema_id": FURTO, "termos": expressoes[:3]},
-                                       ROUBO: {"tema_id": ROUBO, "termos": expressoes}})
-    knn, pesos = ctx.indice_rotulado(set())
-    pontos = ctx.indice_termos.pontuar(ctx.texto("Q0001"))
-    assert (pontos[FURTO][1], pontos[ROUBO][1]) == (3, 7)
-    # sem Roubo entre os candidatos, a maior soma é a do Furto
-    candidatos = {"Q0001": [Candidato(FURTO, {"knn"}, 1.0), Candidato(PATRIMONIO, {"pai"}, 1.0)]}
-    linhas = linhas_por_tema(tabela_pares(["Q0001"], candidatos, ctx, knn, pesos, set()))
-    assert linhas[FURTO]["termos_soma"] == pytest.approx(1.0) and linhas[FURTO]["termos_n"] == pytest.approx(3 / 5)
-    # o voto dos termos olha todos os temas publicáveis: é do Roubo, que não é candidato
-    assert linhas[FURTO]["voto_termos"] == 0
-    candidatos["Q0001"].append(Candidato(ROUBO, {"knn"}, 1.0))
-    linhas = linhas_por_tema(tabela_pares(["Q0001"], candidatos, ctx, knn, pesos, set()))
-    assert linhas[ROUBO]["termos_n"] == 1.0 and linhas[ROUBO]["termos_soma"] == pytest.approx(1.0)
-    assert linhas[FURTO]["termos_soma"] == pytest.approx(pontos[FURTO][0] / pontos[ROUBO][0])
-    assert (linhas[ROUBO]["voto_termos"], linhas[FURTO]["voto_termos"]) == (1, 0)

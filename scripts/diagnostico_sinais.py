@@ -1,8 +1,7 @@
 """Sinais candidatos a confiança, medidos fora da amostra na folha-verdade (uma repetição de 5 dobras).
 
 Mostra o acerto do top-1 do modelo de pares (no tema e no ramo de nível 1) por concordância entre as buscas
-independentes: `votos` (quantas de BM25, cosseno questão×tema, dicionário de leis, kNN e termos técnicos têm o
-top-1 como primeiro)
+independentes: `votos` (quantas de BM25, cosseno questão×tema, dicionário de leis e kNN têm o top-1 como primeiro)
 e `votos_ramo` (quantas têm o primeiro no mesmo ramo); a concordância antiga só com as três primeiras; e a
 confiança do segundo estágio (`ModeloConfianca`) quando acerta e quando erra.
 
@@ -68,13 +67,13 @@ def main() -> None:
     print(f"n={n} | acerto top-1 no tema: {taxa(reg, 'ok_tema'):.0%} | publicando o ramo (nível 1) do top-1: "
           f"{taxa(reg, 'ok_ramo'):.0%}")
     titulos = {
-        "votos": "votos (quantas de BM25, cosseno-tema, dicionário, kNN e termos têm o top-1 como primeiro)",
-        "votos_ramo": "votos_ramo (quantas das cinco têm o primeiro no mesmo ramo do top-1)",
+        "votos": "votos (quantas de BM25, cosseno-tema, dicionário e kNN têm o top-1 como primeiro)",
+        "votos_ramo": "votos_ramo (quantas das quatro têm o primeiro no mesmo ramo do top-1)",
         "conc3": "concordância antiga (BM25, cosseno-tema e dicionário, sem o kNN)",
     }
     for chave, titulo in titulos.items():
         print(f"\n{titulo}:")
-        for v in range(6):
+        for v in range(5):
             g = [r for r in reg if r[chave] == v]
             if g:
                 print(f"  {v}: n={len(g):3d} | acerto tema {taxa(g, 'ok_tema'):.0%} | acerto ramo "
