@@ -217,10 +217,17 @@ def texto_previsao(resumo: dict) -> str:
             "baixar a precisão prevista nem o limite inferior. Sem corpus: precisão "
             f"{_num(sem['precisao'])} (limite inferior {_num(sem['limite_inferior'])}), cobertura "
             f"{_pct(sem['cobertura'])}. Com corpus: precisão {_num(com['precisao'])} (limite inferior "
-            f"{_num(com['limite_inferior'])}), cobertura {_pct(com['cobertura'])}. Resultado: "
+            f"{_num(com['limite_inferior'])}), cobertura {_pct(com['cobertura'])}. Veredito da regra: "
             f"{'corpus aprovado' if comparacao['corpus_aprovado'] else 'corpus fora'} ({comparacao['motivo']}).",
             "",
         ]
+        if "decisao_final_com_corpus" in comparacao and comparacao["decisao_final_com_corpus"] != comparacao["corpus_aprovado"]:
+            fonte_final = "com o corpus" if comparacao["decisao_final_com_corpus"] else "sem o corpus"
+            partes += [
+                f"Fonte usada nesta entrega: {fonte_final}, {comparacao['motivo_final']}. A previsão acima é a da fonte "
+                "usada. A outra versão está em `alternativas/`, com a sua própria previsão.",
+                "",
+            ]
     else:
         fonte = "com o corpus da etapa 1" if resumo.get("com_corpus") else "sem o corpus da etapa 1"
         partes += [f"Comparação de fontes: não rodou nesta execução; a fonte foi escolhida na linha de comando "

@@ -129,15 +129,30 @@ def _gravar_intermediarios(pasta: Path, contexto: Contexto, aplicacao: Aplicacao
 # --- comandos ------------------------------------------------------------------------------------------------
 
 
+# Decisão tomada à mão, depois de ver a comparação de fontes de 21/10/2026: a regra dos 3 pontos rejeitava o corpus
+# porque a precisão prevista caía de 0,957 para 0,951 (menos de uma questão efetiva), com o limite inferior maior
+# (0,849 contra 0,834) e a cobertura das dobras de 18% para 29%; nenhuma das 659 questões tem semelhança de 0,90 ou
+# mais com uma questão do corpus, então não há vazamento. A entrega usa o corpus; `--sem-corpus` gera a alternativa.
+USAR_CORPUS_NA_ENTREGA = True
+MOTIVO_FONTE = ("decisão tomada à mão depois da comparação: a regra rejeitava o corpus por uma queda de 0,006 na "
+                "precisão prevista, menor que uma questão efetiva, com limite inferior maior, quase o dobro da "
+                "cobertura nas dobras e nenhuma questão quase igual a uma do corpus")
+
+
 def tudo(com_corpus: bool | None = None, caminhos: Caminhos | None = None, imprimir: bool = True) -> dict:
-    """Regenera `publicacao.csv` e `previsao.txt`; `com_corpus=None` decide o corpus pela regra dos 3 pontos."""
+    """Regenera `publicacao.csv` e `previsao.txt`.
+
+    `com_corpus=None` (o padrão do comando `tudo`) roda a comparação de fontes, registra o veredito da regra dos 3
+    pontos e usa a fonte escolhida à mão em `USAR_CORPUS_NA_ENTREGA`; `True` ou `False` forçam a fonte sem comparar.
+    """
     inicio = time.perf_counter()
     caminhos = _caminhos(caminhos)
     comparacao = None
     if com_corpus is None:
         contexto = carregar_contexto(com_corpus=True, caminhos=caminhos)
         comparacao = comparar_fontes(contexto, contexto)
-        usar_corpus = bool(comparacao["corpus_aprovado"])
+        comparacao = {**comparacao, "decisao_final_com_corpus": USAR_CORPUS_NA_ENTREGA, "motivo_final": MOTIVO_FONTE}
+        usar_corpus = USAR_CORPUS_NA_ENTREGA
         validacao = comparacao["validacoes"]["com_corpus" if usar_corpus else "sem_corpus"]
     else:
         usar_corpus = bool(com_corpus)

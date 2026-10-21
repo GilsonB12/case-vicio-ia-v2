@@ -39,7 +39,7 @@ def pipeline_falso(monkeypatch):
 
 
 @pytest.mark.parametrize("argumentos, esperado", [
-    (["tudo"], ("tudo", None)),  # sem escolha: a regra dos 3 pontos decide o corpus
+    (["tudo"], ("tudo", None)),  # sem escolha: compara as fontes e usa a escolhida à mão
     (["tudo", "--com-corpus"], ("tudo", True)),
     (["tudo", "--sem-corpus"], ("tudo", False)),
     (["avaliar-folha"], ("avaliar-folha", False)),

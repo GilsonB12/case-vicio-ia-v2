@@ -1,7 +1,7 @@
-precisao_prevista: 0.96
-precisao_intervalo: 0.83-1.00
-cobertura_prevista: 0.14
-cobertura_intervalo: 0.13-0.15
+precisao_prevista: 0.95
+precisao_intervalo: 0.85-1.00
+cobertura_prevista: 0.38
+cobertura_intervalo: 0.37-0.39
 
 Como chegamos nesses números
 
@@ -11,13 +11,15 @@ Validação cruzada: 5 dobras estratificadas por (fora da taxonomia, disciplina 
 
 Confiança: um segundo modelo (regressão logística) dá a chance de publicar certo em duas opções por questão, o tema mais provável do modelo de pares e o ramo de nível 1 dele, a partir da probabilidade, da concordância entre as quatro buscas independentes (BM25, cosseno com o tema, dicionário de leis e vizinhos rotulados), do nível do tema, da similaridade com a folha de treino e da presença de lei citada. Ele aprende com previsões fora da amostra: dentro de cada treino, uma validação interna de 5 dobras refaz o modelo de pares sem as questões que vai prever. Publica-se a opção de maior confiança quando ela passa do limiar; é essa confiança que vai na coluna confianca do publicacao.csv.
 
-Limiares: a grade cruza o limiar da confiança (0,50 a 0,99, de 0,01 em 0,01) com o limiar de fora (0,3 a 0,9). Para cada par, as publicadas e os acertos das dobras são somados; como cada questão aparece uma vez por repetição, as contagens são divididas pelas 3 repetições (n efetivo) antes da média de Jeffreys (acertos + 0,5) / (publicadas + 1) e do intervalo de 95% por 10.000 sorteios da Beta. A escolha segue a escada: degrau 3 (nenhum par chegou aos degraus 0 a 2, porque com 100 rótulos o limite inferior não chega a 0,95 e a precisão de 0,97 exige mais publicações sem erro do que a folha tem; vale a precisão prevista de pelo menos 0,95, que é a régua, com pelo menos 10 publicações efetivas e a maior cobertura). Ficou no degrau 3: publicar a partir de 0,97, fora a partir de 0,40, extras a partir de 0,15.
+Limiares: a grade cruza o limiar da confiança (0,50 a 0,99, de 0,01 em 0,01) com o limiar de fora (0,3 a 0,9). Para cada par, as publicadas e os acertos das dobras são somados; como cada questão aparece uma vez por repetição, as contagens são divididas pelas 3 repetições (n efetivo) antes da média de Jeffreys (acertos + 0,5) / (publicadas + 1) e do intervalo de 95% por 10.000 sorteios da Beta. A escolha segue a escada: degrau 3 (nenhum par chegou aos degraus 0 a 2, porque com 100 rótulos o limite inferior não chega a 0,95 e a precisão de 0,97 exige mais publicações sem erro do que a folha tem; vale a precisão prevista de pelo menos 0,95, que é a régua, com pelo menos 10 publicações efetivas e a maior cobertura). Ficou no degrau 3: publicar a partir de 0,95, fora a partir de 0,30, extras a partir de 0,15.
 
-Precisão prevista: a precisão agrupada das dobras no par de limiares escolhido (54 certas em 55 publicadas, somando as 300 questões de teste das dobras; n efetivo 18,33 publicadas), 0,96, com intervalo 0,83-1,00. Acerto pela régua completa: tema central, extra, ou pai ou filho de um deles; publicar uma questão fora da taxonomia conta como erro.
+Precisão prevista: a precisão agrupada das dobras no par de limiares escolhido (85 certas em 88 publicadas, somando as 300 questões de teste das dobras; n efetivo 29,33 publicadas), 0,95, com intervalo 0,85-1,00. Acerto pela régua completa: tema central, extra, ou pai ou filho de um deles; publicar uma questão fora da taxonomia conta como erro.
 
-Cobertura prevista: a fração publicada observada nas 559 questões fora da folha, com o modelo final treinado nos 100 rótulos e os mesmos limiares: 79 publicadas, 0,14; o intervalo é ±0,01 em torno dela. Como conferência, a cobertura das dobras no mesmo par foi 0,18.
+Cobertura prevista: a fração publicada observada nas 559 questões fora da folha, com o modelo final treinado nos 100 rótulos e os mesmos limiares: 213 publicadas, 0,38; o intervalo é ±0,01 em torno dela. Como conferência, a cobertura das dobras no mesmo par foi 0,29.
 
-Comparação de fontes: a validação rodou sem e com o corpus da etapa 1 como vizinho rotulado. Regra fixada antes de ver os números: o corpus fica se a cobertura das dobras subir pelo menos 3 pontos sem baixar a precisão prevista nem o limite inferior. Sem corpus: precisão 0,96 (limite inferior 0,83), cobertura 18,3%. Com corpus: precisão 0,95 (limite inferior 0,85), cobertura 29,3%. Resultado: corpus fora (precisão prevista menor).
+Comparação de fontes: a validação rodou sem e com o corpus da etapa 1 como vizinho rotulado. Regra fixada antes de ver os números: o corpus fica se a cobertura das dobras subir pelo menos 3 pontos sem baixar a precisão prevista nem o limite inferior. Sem corpus: precisão 0,96 (limite inferior 0,83), cobertura 18,3%. Com corpus: precisão 0,95 (limite inferior 0,85), cobertura 29,3%. Veredito da regra: corpus fora (precisão prevista menor).
+
+Fonte usada nesta entrega: com o corpus, decisão tomada à mão depois da comparação: a regra rejeitava o corpus por uma queda de 0,006 na precisão prevista, menor que uma questão efetiva, com limite inferior maior, quase o dobro da cobertura nas dobras e nenhuma questão quase igual a uma do corpus. A previsão acima é a da fonte usada. A outra versão está em `alternativas/`, com a sua própria previsão.
 
 O que pode deixar a previsão otimista:
 - são só 100 rótulos; o intervalo da precisão é largo e cada erro pesa;

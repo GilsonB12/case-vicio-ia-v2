@@ -129,7 +129,8 @@ def test_tudo_ponta_a_ponta_com_comparacao_de_fontes(caminhos, sem_rede, capsys)
         assert (pasta / nome).exists(), nome
     comparacao = json.loads((pasta / "comparacao_fontes.json").read_text(encoding="utf-8"))
     assert {"sem_corpus", "com_corpus", "corpus_aprovado", "motivo"} <= set(comparacao)
-    assert resumo["com_corpus"] is comparacao["corpus_aprovado"]
+    assert resumo["com_corpus"] is pipeline.USAR_CORPUS_NA_ENTREGA  # a fonte da entrega é decisão à mão
+    assert comparacao["decisao_final_com_corpus"] is pipeline.USAR_CORPUS_NA_ENTREGA
     limiares = json.loads((pasta / "limiares.json").read_text(encoding="utf-8"))
     assert limiares["publicar"] == resumo["limiares"]["publicar"]
     pesos = json.loads((pasta / "pesos_modelo.json").read_text(encoding="utf-8"))

@@ -1,7 +1,7 @@
 {
- "publicar": 0.97,
- "fora": 0.4,
+ "publicar": 0.95,
+ "fora": 0.3,
  "extra": 0.15,
  "degrau": 3,
- "com_corpus": false
+ "com_corpus": true
 }

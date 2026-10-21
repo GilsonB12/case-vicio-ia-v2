@@ -28,8 +28,9 @@ def _montar_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="comando", required=True, metavar="subcomando")
 
     p = sub.add_parser("tudo", help="regenera publicacao.csv e previsao.txt a partir dos anexos e de dados/, sem rede",
-                       description="Sem --com-corpus nem --sem-corpus, a validação roda com e sem o corpus da etapa 1 "
-                                   "e a regra dos 3 pontos decide.")
+                       description="Sem --com-corpus nem --sem-corpus, a validação roda com e sem o corpus da etapa 1, "
+                                   "registra o veredito da regra dos 3 pontos e usa a fonte escolhida à mão "
+                                   "(com corpus; ver pipeline.USAR_CORPUS_NA_ENTREGA).")
     fonte = p.add_mutually_exclusive_group()
     fonte.add_argument("--com-corpus", dest="com_corpus", action="store_const", const=True, default=None,
                        help="usa o corpus da etapa 1 como vizinho rotulado, sem comparar fontes")

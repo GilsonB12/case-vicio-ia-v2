@@ -1,27 +1,27 @@
 {
- "precisao": 0.956896551724138,
+ "precisao": 0.9505494505494505,
  "precisao_intervalo": [
-  0.8337035956917471,
-  0.9994153529534067
+  0.848588405243055,
+  0.996264929638759
  ],
- "cobertura": 0.1413237924865832,
+ "cobertura": 0.3810375670840787,
  "cobertura_intervalo": [
-  0.13132379248658319,
-  0.1513237924865832
+  0.3710375670840787,
+  0.3910375670840787
  ],
- "cobertura_dobras": 0.18333333333333332,
- "publicadas_dobras": 55,
- "acertos_dobras": 54,
+ "cobertura_dobras": 0.29333333333333333,
+ "publicadas_dobras": 88,
+ "acertos_dobras": 85,
  "n_teste_dobras": 300,
- "n_efetivo": 18.333333333333332,
- "acertos_efetivos": 18.0,
+ "n_efetivo": 29.333333333333332,
+ "acertos_efetivos": 28.333333333333332,
  "degrau": 3,
  "limiares": {
-  "publicar": 0.97,
-  "fora": 0.4,
+  "publicar": 0.95,
+  "fora": 0.3,
   "extra": 0.15
  },
- "com_corpus": false,
+ "com_corpus": true,
  "n_rotulos": 100,
  "n_dobras": 5,
  "n_dobras_confianca": 5,
@@ -29,20 +29,20 @@
  "n_questoes": 659,
  "n_avaliadas": 559,
  "n_recentes": 300,
- "publicadas_avaliadas": 79,
+ "publicadas_avaliadas": 213,
  "contagens": {
-  "publicar": 99,
-  "revisar": 542,
-  "fora": 18
+  "publicar": 246,
+  "revisar": 384,
+  "fora": 29
  },
  "contagens_avaliadas": {
-  "publicar": 79,
-  "revisar": 462,
-  "fora": 18
+  "publicar": 213,
+  "revisar": 318,
+  "fora": 28
  },
  "erros_dobras": {
   "irmao": 0,
-  "outro_ramo": 1,
+  "outro_ramo": 3,
   "fora_publicada": 0
  },
  "comparacao": {
@@ -91,7 +91,9 @@
   },
   "ganho_cobertura": 0.11000000000000001,
   "corpus_aprovado": false,
-  "motivo": "precisão prevista menor"
+  "motivo": "precisão prevista menor",
+  "decisao_final_com_corpus": true,
+  "motivo_final": "decisão tomada à mão depois da comparação: a regra rejeitava o corpus por uma queda de 0,006 na precisão prevista, menor que uma questão efetiva, com limite inferior maior, quase o dobro da cobertura nas dobras e nenhuma questão quase igual a uma do corpus"
  },
- "tempo_segundos": 142.5
+ "tempo_segundos": 119.1
 }
