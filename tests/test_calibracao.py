@@ -180,7 +180,7 @@ def test_rodar_dobra_resultado(ctx):
         opcoes = linha["opcoes"]
         assert opcoes[0].opcao == "tema" and opcoes[0].tema_id == linha["tema_max"]
         assert all(0 <= o.confianca <= 1 for o in opcoes) and linha["confianca_tema"] == opcoes[0].confianca
-        assert 0 <= linha["votos"] <= linha["votos_ramo"] <= 4
+        assert 0 <= linha["votos"] <= linha["votos_ramo"] <= 5
         if len(opcoes) == 2:
             assert opcoes[1].opcao == "ramo" and opcoes[1].tema_id == ctx.arvore.pai(linha["tema_max"])
         assert linha["p_max"] == pytest.approx(linha["candidatos_prob"][0][1])

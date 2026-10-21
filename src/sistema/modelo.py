@@ -415,7 +415,7 @@ def pesos_por_linha(tabela: pd.DataFrame, peso_por_id: Mapping[Hashable, float])
 
 # --- segundo estágio: confiança por opção de publicação ----------------------------------------------------
 
-CARACTERISTICAS_CONFIANCA = ["p", "s", "votos", "votos_ramo", "nivel2_opcao", "knn_folha_max", "tem_lei"]
+CARACTERISTICAS_CONFIANCA = ["p", "s", "votos", "votos_ramo", "nivel2_opcao", "termos_soma", "tem_lei"]
 COLUNAS_OPCOES = ["id", "opcao", "tema_id", *CARACTERISTICAS_CONFIANCA]
 C_CONFIANCA = 1.0
 
@@ -432,14 +432,14 @@ def tabela_opcoes(prob: pd.DataFrame, ramos: pd.DataFrame, pares: pd.DataFrame, 
     - `tema`: o top-1 do modelo de pares (maior `p`; empate, menor id). `p` e `s` são os dele.
     - `ramo`: o pai de nível 1 do top-1, só quando o top-1 é de nível 2 e o pai é candidato; `p` = `p_ramo` do pai.
 
-    `votos` e `votos_ramo` são os do par (questão, tema da opção); `s` e `knn_folha_max` são sempre os do par do
+    `votos` e `votos_ramo` são os do par (questão, tema da opção); `s` e `termos_soma` são sempre os do par do
     top-1; `nivel2_opcao` é 1 se o tema da opção é de nível 2; `tem_lei` é da questão (`tem_lei`).
     """
     arvore = contexto.arvore
     par = {
         (str(i), int(t)): (float(v), float(r), float(k))
         for i, t, v, r, k in zip(pares["id"], pares["tema_id"], pares["votos"], pares["votos_ramo"],
-                                 pares["knn_folha_max"])
+                                 pares["termos_soma"])
     }
     p_ramo = {(str(i), int(t)): float(v) for i, t, v in zip(ramos["id"], ramos["tema_id"], ramos["p_ramo"])}
     topo: dict[str, tuple[int, float, float]] = {}
@@ -450,18 +450,18 @@ def tabela_opcoes(prob: pd.DataFrame, ramos: pd.DataFrame, pares: pd.DataFrame, 
             topo[id_q] = (tema_id, float(s), p)
     linhas: list[dict] = []
     for id_q, (tema_id, s, p) in topo.items():
-        votos, votos_ramo, knn_folha = par.get((id_q, tema_id), (0.0, 0.0, 0.0))
+        votos, votos_ramo, termos_soma = par.get((id_q, tema_id), (0.0, 0.0, 0.0))
         lei = 1.0 if tem_lei(contexto, id_q) else 0.0
         nivel2 = arvore.nivel(tema_id) >= 2
         linhas.append({"id": id_q, "opcao": OPCAO_TEMA, "tema_id": tema_id, "p": p, "s": s, "votos": votos,
-                       "votos_ramo": votos_ramo, "nivel2_opcao": 1.0 if nivel2 else 0.0, "knn_folha_max": knn_folha,
+                       "votos_ramo": votos_ramo, "nivel2_opcao": 1.0 if nivel2 else 0.0, "termos_soma": termos_soma,
                        "tem_lei": lei})
         pai = arvore.pai(tema_id) if nivel2 else None
         if pai is not None and (id_q, int(pai)) in p_ramo:
             votos_pai, votos_ramo_pai, _ = par.get((id_q, int(pai)), (0.0, votos_ramo, 0.0))
             linhas.append({"id": id_q, "opcao": OPCAO_RAMO, "tema_id": int(pai), "p": p_ramo[(id_q, int(pai))],
                            "s": s, "votos": votos_pai, "votos_ramo": votos_ramo_pai, "nivel2_opcao": 0.0,
-                           "knn_folha_max": knn_folha, "tem_lei": lei})
+                           "termos_soma": termos_soma, "tem_lei": lei})
     tabela = pd.DataFrame(linhas, columns=COLUNAS_OPCOES)
     tabela["tema_id"] = tabela["tema_id"].astype("int64")
     tabela[CARACTERISTICAS_CONFIANCA] = tabela[CARACTERISTICAS_CONFIANCA].astype(float)

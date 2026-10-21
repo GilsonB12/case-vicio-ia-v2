@@ -13,9 +13,9 @@ questões de teste da dobra, que não entram em nada do treino.
 
 As dobras da validação rodam em paralelo (`N_TAREFAS` processos; -1 = todos os núcleos; variável de ambiente
 `SISTEMA_TAREFAS`): cada dobra é independente e tem sementes fixas, então o resultado é o mesmo com qualquer número
-de processos. Antes de distribuir, o contexto calcula uma vez as chaves, o BM25 e os cossenos de todos os itens e
-vai uma vez para cada processo (sem o cache de embeddings, que os processos não leem). Se o grupo de processos
-quebrar, as dobras rodam em série.
+de processos. Antes de distribuir, o contexto calcula uma vez as chaves, o BM25, os cossenos e os termos técnicos
+de todos os itens e vai uma vez para cada processo (sem o cache de embeddings, que os processos não leem). Se o
+grupo de processos quebrar, as dobras rodam em série.
 
 A grade varre o limiar da confiança do segundo estágio. Com repetições, cada questão da folha aparece uma vez por
 repetição: a precisão de Jeffreys e o intervalo Beta usam as contagens divididas pelo número de repetições
@@ -667,12 +667,13 @@ def resumo_validacao(validacao: Mapping) -> dict:
 
 
 def aquecer(contexto: "Contexto") -> None:
-    """Calcula as chaves, o BM25 e os cossenos de todos os itens do contexto (as partes que não mudam entre as
-    dobras), para os processos da validação receberem o contexto já com elas."""
+    """Calcula as chaves, o BM25, os cossenos e os termos técnicos de todos os itens do contexto (as partes que não
+    mudam entre as dobras), para os processos da validação receberem o contexto já com elas."""
     for id_item in contexto.vetores:
         contexto.chaves(id_item)
         contexto.pontuacoes_bm25(id_item)
         contexto.cossenos_temas(id_item)
+        contexto.pontuacoes_termos(id_item)
 
 
 _CONTEXTO_DO_PROCESSO: "Contexto | None" = None

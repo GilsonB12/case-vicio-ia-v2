@@ -8,7 +8,7 @@ ramo de nível 1 dele (`ramo`), cada uma com a confiança (probabilidade de esta
 3. Opção de maior confiança é o `ramo` e a confiança ≥ `τ` → `publicar` no pai (empate de confiança fica com o
    `tema`, mais específico).
 4. Senão → `revisar` com o top-1 do modelo de pares; motivo "confiança X abaixo do limiar Y" (X é a da melhor
-   opção), ou "buscas divergem" quando no máximo uma das quatro buscas tem o top-1 como primeiro.
+   opção), ou "buscas divergem" quando no máximo uma das cinco buscas tem o top-1 como primeiro.
 5. Extras (publicar e revisar): até 3 outros candidatos com `p ≥ τ_extra`, em ordem de `p`, fora do central, do
    pai e dos filhos dele. Confiança: a do segundo estágio para o central (em `revisar`, a da opção `tema`), com 2
    casas; em `fora`, `p_fora`.
@@ -34,7 +34,7 @@ DECISOES = (PUBLICAR, REVISAR, FORA)
 EXTRA_PADRAO = 0.15
 N_EXTRAS = 3
 VOTOS_DIVERGENCIA = 1  # com no máximo este número de buscas no top-1, o motivo de revisar é "buscas divergem"
-N_BUSCAS = 4
+N_BUSCAS = 5  # dicionário de leis, BM25, cosseno com o tema, kNN e termos técnicos
 
 OPCAO_TEMA = "tema"
 OPCAO_RAMO = "ramo"

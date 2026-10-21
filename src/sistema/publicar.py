@@ -170,8 +170,9 @@ def texto_previsao(resumo: dict) -> str:
         "",
         "Confiança: um segundo modelo (regressão logística) dá a chance de publicar certo em duas opções por "
         "questão, o tema mais provável do modelo de pares e o ramo de nível 1 dele, a partir da probabilidade, da "
-        "concordância entre as quatro buscas independentes (BM25, cosseno com o tema, dicionário de leis e vizinhos "
-        "rotulados), do nível do tema, da similaridade com a folha de treino e da presença de lei citada. Ele "
+        "concordância entre as cinco buscas independentes (BM25, cosseno com o tema, dicionário de leis, vizinhos "
+        "rotulados e termos técnicos do tema casados como frase inteira), do nível do tema, do peso dos termos "
+        "técnicos casados e da presença de lei citada. Ele "
         f"aprende com previsões fora da amostra: dentro de cada treino, uma validação interna de {n_internas} dobras "
         "refaz o "
         "modelo de pares sem as questões que vai prever. Publica-se a opção de maior confiança quando ela passa do "

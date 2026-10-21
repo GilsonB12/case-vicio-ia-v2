@@ -30,6 +30,7 @@ from sistema.dados import (
 from sistema.embeddings import CacheEmbeddings, EmbeddingAusenteError
 from sistema.indice_bm25 import IndiceBM25
 from sistema.leis import extrair_chaves
+from sistema.termos import IndiceTermos, Pontos
 from sistema.vizinhos import IndiceVetorial
 
 registro = logging.getLogger(__name__)
@@ -50,6 +51,7 @@ class Contexto:
 
     `temas_ids` é a ordem de `textos_temas`, das linhas de `matriz_temas` e dos índices dos temas (por padrão,
     `arvore.candidatos_possiveis()`). `vetores` tem o embedding de cada questão, exemplo e item do corpus, por id.
+    `indice_termos` é o dicionário de termos técnicos dos temas publicáveis, montado dos `enriquecidos`.
     """
 
     arvore: ArvoreTemas
@@ -68,6 +70,7 @@ class Contexto:
     indice_bm25: IndiceBM25 = field(init=False, repr=False)
     indice_temas: IndiceVetorial = field(init=False, repr=False)
     publicaveis: frozenset[int] = field(init=False, repr=False)
+    indice_termos: IndiceTermos = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         self.temas_ids = [int(tema_id) for tema_id in self.temas_ids]
@@ -76,6 +79,7 @@ class Contexto:
         self.indice_bm25 = IndiceBM25(self.temas_ids, self.textos_temas)
         self.indice_temas = IndiceVetorial(self.temas_ids, self.matriz_temas, self.temas_ids)
         self.publicaveis = frozenset(t for t in self.temas_ids if self.arvore.publicavel(t))
+        self.indice_termos = IndiceTermos(self.enriquecidos, self.arvore, self.publicaveis)
 
         self._itens: dict[str, dict] = {}
         fontes = (
@@ -108,6 +112,7 @@ class Contexto:
         self._chaves: dict[str, Counter] = {}
         self._bm25: dict[str, np.ndarray] = {}
         self._cossenos: dict[str, np.ndarray] = {}
+        self._termos: dict[str, dict[int, Pontos]] = {}
 
     # --- itens (questões, exemplos, corpus) --------------------------------------------------------------
 
@@ -155,6 +160,13 @@ class Contexto:
         if id_item not in self._cossenos:
             self._cossenos[id_item] = self.indice_temas.similaridades(self.vetor(id_item))
         return self._cossenos[id_item]
+
+    def pontuacoes_termos(self, id_item: str) -> dict[int, Pontos]:
+        """`IndiceTermos.pontuar` do texto do item: `{tema_id: (soma dos pesos, expressões, maior peso)}` dos temas
+        com alguma expressão casada, calculado uma vez (não muda entre as dobras)."""
+        if id_item not in self._termos:
+            self._termos[id_item] = self.indice_termos.pontuar(self.texto(id_item))
+        return self._termos[id_item]
 
     def linha_folha(self, id_questao: str) -> dict:
         return self._folha[id_questao]

@@ -162,3 +162,22 @@ def test_custos_recusa_painel_mal_formado(valor):
 
 def test_ler_valor_painel():
     assert cli.ler_valor_painel(" openai = 0,70 ") == ("openai", 0.70)
+
+
+def test_scripts_rodar_e_ponto_de_entrada_protegido_para_o_spawn():
+    """Os processos da validação (spawn) reimportam o script principal como `__mp_main__`: ele não pode rodar o CLI
+    de novo; chamado como script, roda o CLI com os argumentos dele."""
+    import runpy
+    import subprocess
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "rodar.py"
+    runpy.run_path(str(script), run_name="__mp_main__")  # sem a guarda, chamaria cli.main com os argumentos do pytest
+    import os
+
+    ambiente = {**os.environ, "PYTHONIOENCODING": "utf-8"}  # a ajuda tem acentos; o console do Windows não é UTF-8
+    resultado = subprocess.run([sys.executable, str(script), "--help"], capture_output=True, encoding="utf-8",
+                               env=ambiente)
+    assert resultado.returncode == 0, resultado.stderr
+    for subcomando in SUBCOMANDOS:
+        assert subcomando in resultado.stdout

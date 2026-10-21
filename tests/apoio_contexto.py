@@ -79,7 +79,8 @@ EXEMPLOS = [
 CORPUS = [{"id": "C0001", "tema_id": FURTO, "texto": "questão do corpus sobre furto", "vetor": vetor(furto=1, roubo=0.2)}]
 
 
-def montar(arvore: ArvoreTemas | None = None, com_corpus: bool = True) -> Contexto:
+def montar(arvore: ArvoreTemas | None = None, com_corpus: bool = True, enriquecidos: dict | None = None) -> Contexto:
+    """Contexto pequeno; `enriquecidos` só alimenta o dicionário de termos (os textos dos temas não mudam)."""
     arvore = arvore or ArvoreTemas.carregar()
     temas_ids = sorted(EIXOS)
     matriz_temas = np.vstack([np.eye(DIMENSAO, dtype=np.float32)[EIXOS[t]] for t in temas_ids])
@@ -97,7 +98,7 @@ def montar(arvore: ArvoreTemas | None = None, com_corpus: bool = True) -> Contex
         vetores.update({c["id"]: c["vetor"] for c in CORPUS})
     return Contexto(
         arvore=arvore,
-        enriquecidos={},
+        enriquecidos=enriquecidos or {},
         dicionario=DICIONARIO,
         termos_fora=["militar"],
         questoes=questoes,
