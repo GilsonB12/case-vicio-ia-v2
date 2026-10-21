@@ -8,8 +8,6 @@ import logging
 from sistema import custos
 from sistema.embeddings import CacheEmbeddings, textos_do_sistema
 
-PENDENTE_T4 = "chega na tarefa T4"
-
 
 def ler_valor_painel(texto: str) -> tuple[str, float]:
     """PROVEDOR=VALOR em dólares, como no painel do provedor; aceita vírgula decimal."""
@@ -29,8 +27,14 @@ def _montar_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="comando", required=True, metavar="subcomando")
 
-    p = sub.add_parser("tudo", help="regenera publicacao.csv e previsao.txt a partir dos anexos e de dados/, sem rede")
-    p.add_argument("--com-corpus", action="store_true", help="usa o corpus da etapa 1 como vizinho rotulado")
+    p = sub.add_parser("tudo", help="regenera publicacao.csv e previsao.txt a partir dos anexos e de dados/, sem rede",
+                       description="Sem --com-corpus nem --sem-corpus, a validação roda com e sem o corpus da etapa 1 "
+                                   "e a regra dos 3 pontos decide.")
+    fonte = p.add_mutually_exclusive_group()
+    fonte.add_argument("--com-corpus", dest="com_corpus", action="store_const", const=True, default=None,
+                       help="usa o corpus da etapa 1 como vizinho rotulado, sem comparar fontes")
+    fonte.add_argument("--sem-corpus", dest="com_corpus", action="store_const", const=False,
+                       help="não usa o corpus da etapa 1, sem comparar fontes")
 
     sub.add_parser("embeddings", help="grava no cache os embeddings que faltam (a única etapa que chama a API)")
 
@@ -94,7 +98,15 @@ def main(argumentos: list[str] | None = None) -> int:
     if resto:
         parser.error(f"argumento(s) não reconhecido(s): {' '.join(resto)}")
     if args.comando in ("tudo", "avaliar-folha", "comparar-fontes"):
-        raise NotImplementedError(PENDENTE_T4)
+        from sistema import pipeline
+
+        if args.comando == "tudo":
+            pipeline.tudo(com_corpus=args.com_corpus)
+        elif args.comando == "avaliar-folha":
+            pipeline.avaliar_folha(com_corpus=args.com_corpus)
+        else:
+            pipeline.comparar()
+        return 0
     if args.comando == "embeddings":
         return _embeddings()
     if args.comando == "custos":

@@ -106,6 +106,8 @@ class Contexto:
         if fora_das_questoes:
             raise ValueError(f"questões da folha que não estão nas questões: {fora_das_questoes[:5]}")
         self._chaves: dict[str, Counter] = {}
+        self._bm25: dict[str, np.ndarray] = {}
+        self._cossenos: dict[str, np.ndarray] = {}
 
     # --- itens (questões, exemplos, corpus) --------------------------------------------------------------
 
@@ -138,6 +140,21 @@ class Contexto:
         if id_item not in self._chaves:
             self._chaves[id_item] = extrair_chaves(self.texto(id_item))
         return self._chaves[id_item]
+
+    def pontuacoes_bm25(self, id_item: str) -> np.ndarray:
+        """BM25 bruto do texto do item contra cada tema (ordem de `temas_ids`), calculado uma vez.
+
+        Não muda entre as dobras da validação cruzada (só o kNN muda): candidatos e características reaproveitam.
+        """
+        if id_item not in self._bm25:
+            self._bm25[id_item] = self.indice_bm25.pontuacoes(self.texto(id_item))
+        return self._bm25[id_item]
+
+    def cossenos_temas(self, id_item: str) -> np.ndarray:
+        """Cosseno do embedding do item com o de cada tema (ordem de `temas_ids`), calculado uma vez."""
+        if id_item not in self._cossenos:
+            self._cossenos[id_item] = self.indice_temas.similaridades(self.vetor(id_item))
+        return self._cossenos[id_item]
 
     def linha_folha(self, id_questao: str) -> dict:
         return self._folha[id_questao]

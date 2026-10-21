@@ -110,3 +110,116 @@ def montar(arvore: ArvoreTemas | None = None, com_corpus: bool = True) -> Contex
         matriz_temas=matriz_temas,
         vetores=vetores,
     )
+
+
+# --- contexto maior, para modelo, calibração e decisão ---------------------------------------------------
+
+PALAVRAS = {
+    PATRIMONIO: "crimes contra o patrimônio em geral",
+    FURTO: "furto subtração de coisa alheia móvel",
+    ROUBO: "roubo com violência ou grave ameaça",
+    EXTORSAO: "extorsão constrangimento para obter vantagem",
+    ESTELIONATO: "estelionato fraude induzindo alguém a erro",
+    MARIA_DA_PENHA: "violência doméstica contra a mulher, Lei Maria da Penha",
+    DROGAS: "tráfico de drogas e entorpecentes",
+}
+DISCIPLINA_ORIGEM = {
+    PATRIMONIO: "Direito Penal", FURTO: "Direito Penal", ROUBO: "Direito Penal", EXTORSAO: "Direito Penal",
+    ESTELIONATO: "Direito Penal", MARIA_DA_PENHA: "Direito Penal - Legislação Especial",
+    DROGAS: "Direito Penal - Legislação Especial",
+}
+# Questões da folha por tema central (None = fora) e as que ficam fora da folha
+FOLHA_MAIOR = {FURTO: 6, ROUBO: 6, EXTORSAO: 5, ESTELIONATO: 5, PATRIMONIO: 3, MARIA_DA_PENHA: 5, DROGAS: 5, None: 5}
+FORA_DA_FOLHA_MAIOR = {FURTO: 2, ROUBO: 2, EXTORSAO: 2, ESTELIONATO: 2, MARIA_DA_PENHA: 2, DROGAS: 2, None: 2}
+TEXTO_FORA = "crime militar de deserção previsto no Código Penal Militar, julgado pela justiça militar"
+
+
+def _vetor_ruidoso(gerador: np.random.Generator, tema: int | None, ruido: float) -> np.ndarray:
+    base = np.zeros(DIMENSAO, dtype=np.float32)
+    if tema is None:
+        base[FORA] = 1.0
+    else:
+        base[EIXOS[tema]] = 1.0
+        if tema == PATRIMONIO:
+            base[EIXOS[FURTO]] = 0.3
+    return (base + gerador.normal(0.0, ruido, DIMENSAO)).astype(np.float32)
+
+
+def dados_maiores(semente: int = 7, ruido: float = 0.25) -> dict:
+    """Questões, folha, exemplos e corpus do contexto maior, com texto, disciplina e vetor de cada item.
+
+    Temas da folha: os cinco do patrimônio (Penal) e Maria da Penha e Drogas (Legislação Especial); 5 fora (crime
+    militar). Duas questões de roubo têm furto como extra. Exemplos: 3 por tema e 6 fora. Corpus: 1 por tema.
+    """
+    gerador = np.random.default_rng(semente)
+    questoes, folha = [], []
+    numero = 0
+
+    def nova(tema, na_folha, extras=()):
+        nonlocal numero
+        numero += 1
+        id_q = f"Q{numero:04d}"
+        if tema is None:
+            texto = f"{TEXTO_FORA}. Caso {numero}."
+            disciplina = "Direito Penal Militar" if numero % 2 else "Direito Penal"
+        else:
+            texto = f"Questão sobre {PALAVRAS[tema]}. Caso {numero}."
+            disciplina = DISCIPLINA_ORIGEM[tema]
+        questoes.append({"id": id_q, "texto": texto, "disciplina_origem": disciplina,
+                         "vetor": _vetor_ruidoso(gerador, tema, ruido)})
+        if na_folha:
+            folha.append({"id": id_q, "tema_central_id": tema, "extras_ids": list(extras), "fora": tema is None})
+
+    for tema, n in FOLHA_MAIOR.items():
+        for i in range(n):
+            nova(tema, True, extras=(FURTO,) if tema == ROUBO and i < 2 else ())
+    for tema, n in FORA_DA_FOLHA_MAIOR.items():
+        for _ in range(n):
+            nova(tema, False)
+
+    exemplos, corpus = [], []
+    for tema in [*EIXOS, None, None]:
+        for i in range(3):
+            id_e = f"S{len(exemplos) + 1:04d}"
+            texto = (f"Exemplo sintético {id_e} de {TEXTO_FORA}" if tema is None
+                     else f"Exemplo sintético {id_e}: {PALAVRAS.get(tema, 'disposições gerais do patrimônio')}")
+            exemplos.append({"id": id_e, "tema_id": tema, "fora": tema is None, "texto": texto, "fonte": "teste",
+                             "vetor": _vetor_ruidoso(gerador, tema, ruido)})
+    for tema in PALAVRAS:
+        id_c = f"C{len(corpus) + 1:04d}"
+        corpus.append({"id": id_c, "tema_id": tema, "texto": f"Questão do corpus {id_c} sobre {PALAVRAS[tema]}",
+                       "vetor": _vetor_ruidoso(gerador, tema, ruido)})
+    return {"questoes": questoes, "folha": folha, "exemplos": exemplos, "corpus": corpus}
+
+
+def montar_maior(arvore: ArvoreTemas | None = None, com_corpus: bool = True, semente: int = 7,
+                 ruido: float = 0.25) -> Contexto:
+    """Contexto com 40 questões na folha (35 de 7 temas e 5 fora), 14 fora dela, 33 exemplos e 7 do corpus."""
+    arvore = arvore or ArvoreTemas.carregar()
+    dados = dados_maiores(semente, ruido)
+    temas_ids = sorted(EIXOS)
+    matriz_temas = np.vstack([np.eye(DIMENSAO, dtype=np.float32)[EIXOS[t]] for t in temas_ids])
+    questoes = pd.DataFrame([{k: q[k] for k in ("id", "texto", "disciplina_origem")} for q in dados["questoes"]])
+    folha = pd.DataFrame(dados["folha"], columns=["id", "tema_central_id", "extras_ids", "fora"])
+    folha["tema_central_id"] = pd.Series([f["tema_central_id"] for f in dados["folha"]], dtype=object)
+    vetores = {q["id"]: q["vetor"] for q in dados["questoes"]}
+    vetores.update({e["id"]: e["vetor"] for e in dados["exemplos"]})
+    corpus = []
+    if com_corpus:
+        corpus = [{k: v for k, v in c.items() if k != "vetor"} for c in dados["corpus"]]
+        vetores.update({c["id"]: c["vetor"] for c in dados["corpus"]})
+    return Contexto(
+        arvore=arvore,
+        enriquecidos={},
+        dicionario=DICIONARIO,
+        termos_fora=["militar", "código penal militar", "direito tributário"],
+        questoes=questoes,
+        folha=folha,
+        exemplos=[{k: v for k, v in e.items() if k != "vetor"} for e in dados["exemplos"]],
+        corpus=corpus,
+        cache=None,
+        temas_ids=temas_ids,
+        textos_temas=[arvore.texto_tema(t, {}) for t in temas_ids],
+        matriz_temas=matriz_temas,
+        vetores=vetores,
+    )

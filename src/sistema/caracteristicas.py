@@ -138,6 +138,7 @@ def tabela_pares(
 
     `questoes_ids` podem ser questões, exemplos ou itens do corpus do contexto. Sem `vizinhos_por_id` (ou sem a
     questão nele), os `k_knn` vizinhos são buscados uma vez por questão em `indice_rotulado`, sem ela mesma.
+    BM25 e cosseno com os temas vêm do contexto (`pontuacoes_bm25`, `cossenos_temas`), calculados uma vez por item.
     """
     arvore = contexto.arvore
     posicao_tema = {tema_id: i for i, tema_id in enumerate(contexto.temas_ids)}
@@ -150,9 +151,9 @@ def tabela_pares(
         if not candidatos:
             continue
         vetor = contexto.vetor(id_questao)
-        bm25 = contexto.indice_bm25.pontuacoes(contexto.texto(id_questao))
+        bm25 = contexto.pontuacoes_bm25(id_questao)
         maior_bm25 = float(bm25.max()) if bm25.size else 0.0
-        cossenos = contexto.indice_temas.similaridades(vetor)
+        cossenos = contexto.cossenos_temas(id_questao)
         if vizinhos_por_id is not None and id_questao in vizinhos_por_id:
             vizinhos = list(vizinhos_por_id[id_questao])[:k_knn]
         else:

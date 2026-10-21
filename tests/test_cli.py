@@ -26,12 +26,35 @@ def test_sem_subcomando_e_erro_de_uso():
     assert saida.value.code == 2
 
 
-@pytest.mark.parametrize("argumentos", [
-    ["tudo"], ["tudo", "--com-corpus"], ["avaliar-folha"], ["avaliar-folha", "--com-corpus"], ["comparar-fontes"],
+@pytest.fixture
+def pipeline_falso(monkeypatch):
+    """Troca as funções do pipeline por espiões que só anotam a chamada."""
+    from sistema import pipeline
+
+    chamadas = []
+    monkeypatch.setattr(pipeline, "tudo", lambda com_corpus: chamadas.append(("tudo", com_corpus)))
+    monkeypatch.setattr(pipeline, "avaliar_folha", lambda com_corpus: chamadas.append(("avaliar-folha", com_corpus)))
+    monkeypatch.setattr(pipeline, "comparar", lambda: chamadas.append(("comparar-fontes",)))
+    return chamadas
+
+
+@pytest.mark.parametrize("argumentos, esperado", [
+    (["tudo"], ("tudo", None)),  # sem escolha: a regra dos 3 pontos decide o corpus
+    (["tudo", "--com-corpus"], ("tudo", True)),
+    (["tudo", "--sem-corpus"], ("tudo", False)),
+    (["avaliar-folha"], ("avaliar-folha", False)),
+    (["avaliar-folha", "--com-corpus"], ("avaliar-folha", True)),
+    (["comparar-fontes"], ("comparar-fontes",)),
 ])
-def test_subcomandos_ainda_nao_implementados(argumentos):
-    with pytest.raises(NotImplementedError, match="chega na tarefa T4"):
-        cli.main(argumentos)
+def test_subcomandos_do_pipeline(pipeline_falso, argumentos, esperado):
+    assert cli.main(argumentos) == 0
+    assert pipeline_falso == [esperado]
+
+
+def test_tudo_nao_aceita_com_e_sem_corpus_juntos(pipeline_falso):
+    with pytest.raises(SystemExit) as saida:
+        cli.main(["tudo", "--com-corpus", "--sem-corpus"])
+    assert saida.value.code == 2 and pipeline_falso == []
 
 
 def test_argumento_desconhecido_e_erro_de_uso():

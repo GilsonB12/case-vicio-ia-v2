@@ -17,6 +17,8 @@ from collections.abc import Hashable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
+
 from sistema.dicionario import pontuar
 from sistema.vizinhos import IndiceVetorial
 
@@ -61,6 +63,13 @@ def _normalizar(pontos: Mapping[int, float]) -> dict[int, float]:
     return {tema_id: min(1.0, max(0.0, valor / maior)) for tema_id, valor in pontos.items()}
 
 
+def _melhores(ids: list[int], valores: np.ndarray, k: int) -> list[tuple[int, float]]:
+    """Os `k` maiores valores, em ordem decrescente (empate mantém a ordem de `ids`), como nas buscas dos índices."""
+    if k <= 0 or len(ids) == 0:
+        return []
+    return [(ids[i], float(valores[i])) for i in np.argsort(-np.asarray(valores), kind="stable")[:k]]
+
+
 def buscar_vizinhos(id_item: Hashable, vetor: Any, indice_rotulado: IndiceVetorial, k: int = K_KNN) -> list[Vizinho]:
     """Os `k` vizinhos rotulados mais próximos, sem o próprio item (que pode estar no índice)."""
     return indice_rotulado.buscar(vetor, k, excluir=frozenset({id_item}))
@@ -79,23 +88,33 @@ def gerar(
     *,
     peso_por_id: Mapping[Hashable, float] | None = None,
     vizinhos: list[Vizinho] | None = None,
+    pontos_bm25: np.ndarray | None = None,
+    cossenos: np.ndarray | None = None,
 ) -> list[Candidato]:
     """Candidatos da questão (`id` e `texto`), em ordem, no máximo `teto`.
 
     `vizinhos` já buscados (por `buscar_vizinhos`) evitam uma segunda busca; deles entram os `k_knn` primeiros.
-    `peso_por_id` multiplica a similaridade de cada vizinho (o corpus pesa 0,5).
+    `peso_por_id` multiplica a similaridade de cada vizinho (o corpus pesa 0,5). `pontos_bm25` e `cossenos`
+    (BM25 bruto e cosseno com cada tema, na ordem de `contexto.temas_ids`) reaproveitam as partes que não mudam
+    entre as dobras (`Contexto.pontuacoes_bm25` e `Contexto.cossenos_temas`); sem eles, as buscas são feitas aqui.
     """
     arvore = contexto.arvore
     publicaveis = contexto.publicaveis
     pesos = peso_por_id or {}
 
     pontos_dicionario, _ = pontuar(chaves, contexto.dicionario)
+    if pontos_bm25 is None:
+        achados_bm25 = contexto.indice_bm25.buscar(questao["texto"], k_bm25)
+    else:
+        achados_bm25 = [(t, p) for t, p in _melhores(contexto.temas_ids, pontos_bm25, k_bm25) if p > 0]
+    if cossenos is None:
+        achados_emb = [(t, s) for t, _, s in contexto.indice_temas.buscar(vetor_questao, k_emb)]
+    else:
+        achados_emb = _melhores(contexto.temas_ids, cossenos, k_emb)
     brutos: dict[str, dict[int, float]] = {
         ORIGEM_DICIONARIO: {t: p for t, p in pontos_dicionario.items() if p > 0 and t in publicaveis},
-        ORIGEM_BM25: {t: p for t, p in contexto.indice_bm25.buscar(questao["texto"], k_bm25) if t in publicaveis},
-        ORIGEM_EMBEDDING: {
-            t: s for t, _, s in contexto.indice_temas.buscar(vetor_questao, k_emb) if s > 0 and t in publicaveis
-        },
+        ORIGEM_BM25: {t: p for t, p in achados_bm25 if t in publicaveis},
+        ORIGEM_EMBEDDING: {t: s for t, s in achados_emb if s > 0 and t in publicaveis},
     }
     if vizinhos is None:
         vizinhos = buscar_vizinhos(questao["id"], vetor_questao, indice_rotulado, k_knn)
@@ -149,7 +168,8 @@ def gerar_lote(
 ) -> tuple[dict[str, list[Candidato]], dict[str, list[Vizinho]]]:
     """Candidatos e vizinhos de cada questão (ou exemplo, ou item do corpus) do contexto, por id.
 
-    Os vizinhos voltam para `caracteristicas.tabela_pares` usar sem buscar de novo.
+    Os vizinhos voltam para `caracteristicas.tabela_pares` usar sem buscar de novo. BM25 e cosseno com os temas
+    vêm do contexto, calculados uma vez por item: entre as dobras da validação só o kNN é refeito.
     """
     candidatos_por_id: dict[str, list[Candidato]] = {}
     vizinhos_por_id: dict[str, list[Vizinho]] = {}
@@ -161,5 +181,6 @@ def gerar_lote(
         candidatos_por_id[id_item] = gerar(
             item, contexto.chaves(id_item), vetor, contexto, indice_rotulado,
             k_bm25=k_bm25, k_emb=k_emb, k_knn=k_knn, teto=teto, peso_por_id=peso_por_id, vizinhos=vizinhos,
+            pontos_bm25=contexto.pontuacoes_bm25(id_item), cossenos=contexto.cossenos_temas(id_item),
         )
     return candidatos_por_id, vizinhos_por_id

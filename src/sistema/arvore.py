@@ -65,6 +65,17 @@ _PARTES_ENRIQUECIDAS = (
 class ArvoreTemas:
     def __init__(self, temas: pd.DataFrame) -> None:
         self._df = temas.set_index("tema_id", drop=False)
+        # Um registro por tema em dicionário: a validação cruzada consulta nível e pai centenas de milhares de
+        # vezes, e `DataFrame.loc` por linha custa dezenas de microssegundos.
+        self._registros: dict[int, dict[str, Any]] = {
+            int(registro["tema_id"]): {
+                **registro,
+                "parent_id": None if pd.isna(registro["parent_id"]) else int(registro["parent_id"]),
+                "nivel": int(registro["nivel"]),
+                "ativo": bool(registro["ativo"]),
+            }
+            for registro in self._df.to_dict("records")
+        }
         self._filhos: dict[int, list[int]] = defaultdict(list)
         for tema_id, pai in zip(self._df["tema_id"], self._df["parent_id"]):
             if pd.notna(pai):
@@ -75,9 +86,9 @@ class ArvoreTemas:
     def carregar(cls) -> "ArvoreTemas":
         return cls(carregar_temas())
 
-    def _linha(self, tema_id: int) -> pd.Series:
+    def _linha(self, tema_id: int) -> dict[str, Any]:
         try:
-            return self._df.loc[int(tema_id)]
+            return self._registros[int(tema_id)]
         except KeyError as erro:
             raise KeyError(f"tema {tema_id} não existe") from erro
 
@@ -106,7 +117,7 @@ class ArvoreTemas:
     # --- atributos ---------------------------------------------------------------------------------------
 
     def existe(self, tema_id: int) -> bool:
-        return int(tema_id) in self._df.index
+        return int(tema_id) in self._registros
 
     def titulo(self, tema_id: int) -> str:
         return str(self._linha(tema_id)["titulo"])
@@ -133,8 +144,7 @@ class ArvoreTemas:
     # --- navegação ---------------------------------------------------------------------------------------
 
     def pai(self, tema_id: int) -> int | None:
-        valor = self._linha(tema_id)["parent_id"]
-        return None if pd.isna(valor) else int(valor)
+        return self._linha(tema_id)["parent_id"]
 
     def filhos(self, tema_id: int) -> list[int]:
         return list(self._filhos.get(int(tema_id), []))
