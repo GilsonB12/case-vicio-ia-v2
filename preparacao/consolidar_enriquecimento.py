@@ -4,7 +4,7 @@ dados/temas_enriquecidos.jsonl e dados/exemplos.jsonl, validando cada linha e li
 Uso: uv run python preparacao/consolidar_enriquecimento.py <pasta_dos_lotes> [--fora <exemplos_fora.jsonl>]
 
 Cada lote é um .jsonl com uma linha por tema no formato do prompt em preparacao/prompts/enriquecer_temas.md.
-Lotes "enriq_lote_NN.jsonl" vêm do Codex (gpt-6-astra); lotes "enriq_lote_NN_f.jsonl" vêm de Claude Fable 5.1; quando
+Lotes "enriq_lote_NN.jsonl" vêm do Codex (gpt-6-astra); lotes "enriq_lote_NN_o.jsonl" vêm de Claude Opus 5.5; quando
 os dois existem para o mesmo número, vale o que tiver mais linhas válidas. Linhas inválidas são contadas e os temas
 sem linha válida saem em <pasta>/faltando.json para uma rodada de reparo.
 """
@@ -59,11 +59,11 @@ def main() -> int:
 
     por_lote: dict[str, tuple[dict[int, dict], str]] = {}
     for caminho in sorted(pasta.glob("enriq_lote_*.jsonl")):
-        m = re.match(r"enriq_lote_(\d+)(_f)?\.jsonl", caminho.name)
+        m = re.match(r"enriq_lote_(\d+)(_o)?\.jsonl", caminho.name)
         if not m:
             continue
         numero, sufixo = m.group(1), m.group(2)
-        modelo = "Claude Fable 5.1 (via Claude Code)" if sufixo else "Codex CLI, gpt-6-astra"
+        modelo = "Claude Opus 5.5 (via Claude Code)" if sufixo else "Codex CLI, gpt-6-astra"
         validas, invalidas = ler_lote(caminho)
         print(f"{caminho.name}: {len(validas)} válidas, {invalidas} inválidas")
         atual = por_lote.get(numero)
