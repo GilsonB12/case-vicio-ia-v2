@@ -24,17 +24,35 @@ RAIZ = Path(__file__).resolve().parents[1]
 CHAVES = ("tema_id", "resumo", "leis", "artigos", "termos", "sinonimos", "exemplos")
 
 
+def _objetos_json(texto: str):
+    """Objetos JSON de um texto, aceitando um por linha ou quebrados em várias linhas (saída de modelo)."""
+    decodificador = json.JSONDecoder()
+    i = 0
+    while True:
+        i = texto.find("{", i)
+        if i < 0:
+            return
+        try:
+            objeto, fim = decodificador.raw_decode(texto, i)
+        except json.JSONDecodeError:
+            yield None
+            proxima = texto.find(chr(10) + "{", i + 1)
+            if proxima < 0:
+                return
+            i = proxima + 1
+            continue
+        yield objeto
+        i = fim
+
+
 def ler_lote(caminho: Path) -> tuple[dict[int, dict], int]:
     validas: dict[int, dict] = {}
     invalidas = 0
-    for linha in caminho.read_text(encoding="utf-8").splitlines():
-        linha = linha.strip().strip("`")
-        if not linha.startswith("{") or "marcador" in linha[:40]:
-            continue
-        try:
-            d = json.loads(linha)
-        except json.JSONDecodeError:
+    for d in _objetos_json(caminho.read_text(encoding="utf-8")):
+        if d is None:
             invalidas += 1
+            continue
+        if not isinstance(d, dict) or "marcador" in d:
             continue
         if any(k not in d for k in CHAVES) or not isinstance(d["tema_id"], int):
             invalidas += 1
