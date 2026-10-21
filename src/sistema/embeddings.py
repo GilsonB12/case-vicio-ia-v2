@@ -47,11 +47,30 @@ class EmbeddingAusenteError(RuntimeError):
         super().__init__("\n".join(linhas))
 
 
+# Pacote versionado com os vetores que o sistema usa (ver preparacao/empacotar_embeddings.py).
+ARQUIVO_PACOTE = "vetores.npz"
+
+
 class CacheEmbeddings:
     def __init__(self, pasta: Path = CAMINHOS.embeddings, modelo: str = MODELO_PADRAO) -> None:
         self.modelo = modelo
         self.pasta = Path(pasta) / modelo
         self._memoria: dict[str, np.ndarray] = {}
+        self._pacote = Path(pasta) / ARQUIVO_PACOTE
+        self._indice_pacote: dict[str, int] | None = None
+        self._matriz_pacote: np.ndarray | None = None
+
+    def _carregar_pacote(self) -> None:
+        """Lê uma vez o pacote versionado (`vetores.npz`: hashes sha256 e matriz float32), se existir."""
+        if self._indice_pacote is not None:
+            return
+        self._indice_pacote = {}
+        if not self._pacote.exists():
+            return
+        with np.load(self._pacote, allow_pickle=False) as dados:
+            hashes = [str(h) for h in dados["hashes"]]
+            self._matriz_pacote = np.asarray(dados["matriz"], dtype=np.float32)
+        self._indice_pacote = {h: i for i, h in enumerate(hashes)}
 
     def arquivo(self, texto: str) -> Path:
         return self.pasta / f"{hashlib.sha256(texto.encode('utf-8')).hexdigest()}.json"
@@ -62,6 +81,12 @@ class CacheEmbeddings:
         """Vetor do cache, ou None se o arquivo não existe ou não tem um vetor válido."""
         if texto in self._memoria:
             return self._memoria[texto]
+        self._carregar_pacote()
+        linha = self._indice_pacote.get(hashlib.sha256(texto.encode("utf-8")).hexdigest())
+        if linha is not None:
+            vetor = self._matriz_pacote[linha]
+            self._memoria[texto] = vetor
+            return vetor
         try:
             bruto = json.loads(self.arquivo(texto).read_text(encoding="utf-8"))
         except FileNotFoundError:

@@ -10,3 +10,6 @@ __pycache__/
 node_modules/
 revisao-ui/dist/
 revisao-ui/public/dados/
+
+# cache de embeddings um arquivo por texto (gerado por `sistema embeddings`); o repositório guarda só o pacote vetores.npz
+dados/embeddings/text-embedding-3-large/
