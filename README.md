@@ -23,7 +23,7 @@ uv run sistema tudo          # regenera publicacao.csv e previsao.txt a partir d
 uv run pytest -q             # 371 testes, sem rede, cerca de 1,5 minuto
 ```
 
-`uv run sistema tudo` lê os anexos e os artefatos versionados em `dados/`, valida o sistema na folha-verdade por validação cruzada, escolhe os limiares, treina o modelo final com os 100 rótulos, decide as 659 questões e grava `publicacao.csv`, `previsao.txt` e os intermediários em `dados/intermediarios/`. Tempo: cerca de 2 minutos num notebook comum, sem GPU (a maior parte é a validação cruzada; decidir as 659 questões leva segundos). A variável `SISTEMA_TAREFAS` limita os processos paralelos.
+`uv run sistema tudo` lê os anexos e os artefatos versionados em `dados/`, valida o sistema na folha-verdade por validação cruzada, escolhe os limiares, treina o modelo final com os 100 rótulos, decide as 659 questões e grava `publicacao.csv`, `previsao.txt` e os intermediários em `dados/intermediarios/`. Tempo: cerca de 2 minutos num notebook comum, sem GPU (a maior parte é a validação cruzada; decidir as 659 questões leva segundos). A variável `SISTEMA_TAREFAS` limita os processos paralelos. Conferido em Windows e em Linux (contêiner Docker limpo, clonando este repositório): os dois arquivos saem idênticos byte a byte aos versionados. Dentro de um contêiner com recursos limitados a mesma execução levou 28 minutos; em máquina com pouca memória, use `SISTEMA_TAREFAS=1`.
 
 Outros comandos:
 
