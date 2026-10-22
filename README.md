@@ -14,13 +14,13 @@ Sistema que classifica 659 questões de Penal, Processo Penal, Legislação Pena
 
 ## Como rodar
 
-Pré-requisitos: Git e [uv](https://docs.astral.sh/uv/) (instala o Python 3.12 sozinho). Nenhuma chave de API é necessária para regenerar o resultado.
+Pré-requisitos: Git e [uv](https://docs.astral.sh/uv/) (instala o Python 3.12 sozinho). Nenhuma chave de API é necessária para regenerar o resultado. Máquina: qualquer CPU de 64 bits, sem GPU; uns 300 MB de disco (ambiente Python incluído); pico de 400 MB de memória com `SISTEMA_TAREFAS=1` (um processo, cerca de 3 minutos) e uns 2 GB com o paralelismo padrão. A internet só é usada no `git clone` e no `uv sync`.
 
 ```bash
 git clone https://github.com/GilsonB12/case-vicio-ia-v2.git && cd case-vicio-ia-v2
 uv sync
 uv run sistema tudo          # regenera publicacao.csv e previsao.txt a partir dos anexos, sem rede
-uv run pytest -q             # testes, sem rede
+uv run pytest -q             # 371 testes, sem rede, cerca de 1,5 minuto
 ```
 
 `uv run sistema tudo` lê os anexos e os artefatos versionados em `dados/`, valida o sistema na folha-verdade por validação cruzada, escolhe os limiares, treina o modelo final com os 100 rótulos, decide as 659 questões e grava `publicacao.csv`, `previsao.txt` e os intermediários em `dados/intermediarios/`. Tempo: cerca de 2 minutos num notebook comum, sem GPU (a maior parte é a validação cruzada; decidir as 659 questões leva segundos). A variável `SISTEMA_TAREFAS` limita os processos paralelos.
